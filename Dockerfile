@@ -15,11 +15,4 @@ COPY . .
 EXPOSE 8000
 
 # ⚠️ 1 worker para no matar XAMPP MySQL
-CMD ["gunicorn",
-     "-w", "1",
-     "-k", "gthread",
-     "--timeout", "0",
-     "--graceful-timeout", "0",
-     "--keep-alive", "120",
-     "-b", "0.0.0.0:8000",
-     "main:app"]
+CMD ["gunicorn", "-w", "1", "-k", "gthread", "--timeout", "0", "--graceful-timeout", "0", "--keep-alive", "120", "-b", "0.0.0.0:8000", "main:app"]

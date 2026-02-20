@@ -1,0 +1,15 @@
+ROLE_PROJADMIN = 'GLOCONTROVERSY_PROJADMIN'
+ROLE_PROJEDIT = 'GLOCONTROVERSY_PROJEDIT'
+ROLE_CUSTOMER = 'GLOCONTROVERSY_CUSTOMER'
+ROLE_SYSADMIN = 'GLOCONTROVERSY_SYSADMIN'
+
+NO_FOUND_TOKEN = 'No found token'
+
+HTTP_ERROR_DICT = {
+  "BadRequest": 400,
+  "NotFound": 404,
+  "Conflict": 409,
+  "InternalServerError": 500,
+  "Unauthorized": 401,
+  "ServiceUnavailable": 503,
+}

@@ -62,7 +62,12 @@ engine = create_engine(DATABASE_URL,
                         pool_recycle=1800,         # evita "MySQL server has gone away"
                         pool_size=5,
                         max_overflow=10,
-                        future=True,
+                        future=True,                        
+                        connect_args={
+                            "ssl": {
+                                "ca": "/app/certs/mysql-ca-cert"
+                            }
+                        }
                         )
 
 # Crear session factory

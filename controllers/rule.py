@@ -793,7 +793,12 @@ def import_file_regla(file_base64, regla_id, user_id, session=None, id_job=None)
 
     #storage.update_progress(id_job, 80)
     
-    if len(errores) > 0:            
+    if len(errores) > 0:       
+        print("Regla con errores:")     
+        for error in errores:
+            print(error)
         return errores
+    
+    print("Regla importada exitosamente sin errores.")
     
     return True

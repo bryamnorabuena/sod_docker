@@ -9,6 +9,7 @@ FLASK_ENV = get_environment("APP_ENV", "local")
 
 if FLASK_ENV == "local":
     CONFIG_TYPE = get_environment('DB_CONNECTION_TYPE', 'MYSQL').upper()
+    PATH_PEM = get_environment('PATH_PEM', 'DigiCertGlobalRootG2.crt.pem')
 
     if CONFIG_TYPE == 'SQL_SERVER':
         CONFIG = json.loads(get_environment('DB_CONNECTION_SQL_SERVER'))
@@ -65,7 +66,7 @@ engine = create_engine(DATABASE_URL,
                         future=True,                        
                         connect_args={
                             "ssl": {
-                                "ca": "/app/certs/mysql-ca-cert"
+                                "ca": PATH_PEM
                             }
                         }
                         )

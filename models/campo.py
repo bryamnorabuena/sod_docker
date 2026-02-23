@@ -10,12 +10,12 @@ class Campo(Base):
     Id = Column('Id', Integer, primary_key=True, autoincrement=True)
     IdGenerica = Column(Integer, nullable=False)  # asumo que es un entero (clave foránea?)
     Nombre = Column(String(64), nullable=False)
-    Descripcion = Column(String(128))  # tamaño arbitrario, ajusta según necesidad
+    Descripcion = Column(String(128), nullable=False, server_default='')  # tamaño arbitrario, ajusta según necesidad
     IdAppUserCreacion = Column(Integer, nullable=False)
     IdAppUserActualizacion = Column(Integer, nullable=True)
     FechaCreacion = Column(DateTime, default=datetime.utcnow, nullable=False)
     FechaActualizacion = Column(DateTime, onupdate=datetime.utcnow, nullable=True)
-    Estado = Column(Integer, nullable=False)
+    Estado = Column(Integer, nullable=False, server_default='1')
 
     def __repr__(self):
         return f"<Campo(Id={self.Id}, Nombre={self.Nombre})>"

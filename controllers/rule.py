@@ -156,8 +156,10 @@ def import_file():
         }), 400
 
 def rules_process_form(id_job, nombre, descripcion, archivo_base64, user_id):
+    regla_id = None
     try:
         session = SessionLocal()    
+        time_start = time.perf_counter()
 
         nombre = nombre
         descripcion = descripcion
@@ -187,6 +189,7 @@ def rules_process_form(id_job, nombre, descripcion, archivo_base64, user_id):
         )
         session.add(new_rule)
         session.flush()
+        regla_id = new_rule.Id
 
         #storage.update_progress(id_job, 20)
 
@@ -207,8 +210,15 @@ def rules_process_form(id_job, nombre, descripcion, archivo_base64, user_id):
     except Exception as e:
         raise Exception(f"Error en la función rules_process_form: {e}")
     finally:        
+        time_end = time.perf_counter()
+        tiempo = round(time_end - time_start,2)
+        print(f"Tiempo de ejecución de Regla: {tiempo} segundos")  
+        if regla_id:      
+            session.query(Regla).filter(Regla.Id == regla_id).update({"Tiempo": tiempo})
+            session.commit()
+
         session.expunge_all()
-        session.close()        
+        session.close()
 
     
 def import_file_regla(file_base64, regla_id, user_id, session=None, id_job=None):   

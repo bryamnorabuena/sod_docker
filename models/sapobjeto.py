@@ -11,7 +11,7 @@ class SapObjeto(Base):
     IdRegla = Column(Integer, nullable=False)  # asumo que es un entero (clave foránea?)
     IdSistema = Column(Integer, nullable=False)  # asumo que es un entero (clave foránea?)
     Nombre = Column(String(64), nullable=False)
-    Descripcion = Column(String(255),default="")  # tamaño arbitrario, ajusta según necesidad
+    Descripcion = Column(String(255), nullable=False, server_default='')  # tamaño arbitrario, ajusta según necesidad
     IdAppUserCreacion = Column(Integer, nullable=False)
     IdAppUserActualizacion = Column(Integer, nullable=True)
     FechaCreacion = Column(DateTime, default=datetime.utcnow, nullable=False)

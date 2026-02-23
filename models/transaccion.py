@@ -14,7 +14,7 @@ class Transaccion(Base):
     Nivel = Column(Integer, nullable=False)  # asumo que es un entero (nivel de la transacción)
     Codigo = Column(String(64), nullable=False)  # tamaño arbitrario, ajusta según necesidad
     Nombre = Column(String(128), nullable=False)    
-    Descripcion = Column(String(512), nullable=False, default="")  # en caso de Null grabar ""
+    Descripcion = Column(String(512), nullable=False, server_default='')  # en caso de Null grabar ""
     IdAppUserCreacion = Column(Integer, nullable=False)
     IdAppUserActualizacion = Column(Integer, nullable=True)
     FechaCreacion = Column(DateTime, default=datetime.utcnow, nullable=False)

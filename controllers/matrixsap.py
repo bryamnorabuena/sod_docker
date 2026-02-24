@@ -70,15 +70,18 @@ def new():
                f"/providers/Microsoft.App/jobs/{job_name}/start?api-version=2025-07-01")
 
         # Enviamos INPUT_JSON como env var (tu runner la lee con os.getenv('INPUT_JSON'))
-        body_start = {
+        body_start = {            
+            
             "containers": [
                 {
-                    "name": "runner",  # debe coincidir con el nombre de contenedor del Job (si lo especificaste)
-                    "env": [
-                        {"name": "INPUT_JSON", "value": json.dumps(input_json)}
-                    ]
+                "name": "runner",
+                "image": "sodregistryconflicts1.azurecr.io/aca-mastersap:latest",
+                "env": [
+                    { "name": "INPUT_JSON", "value": json.dumps(input_json) }
+                ]
                 }
             ]
+
         }
 
         resp = requests.post(

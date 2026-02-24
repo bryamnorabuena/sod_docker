@@ -1,18 +1,21 @@
 import json
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from urllib.parse import quote_plus
 from utils.environment import get_environment
 
-# Configuración de la base de datos
-FLASK_ENV = get_environment("APP_ENV", "local")
+FLASK_ENV = os.getenv("APP_ENV") or get_environment("APP_ENV")
+if not FLASK_ENV:
+    raise RuntimeError("APP_ENV no está definida en el entorno del Job.")
+
+CONFIG_TYPE = os.getenv("DB_CONNECTION_TYPE") or get_environment('DB_CONNECTION_TYPE', 'MYSQL')
+DB_CONNECTION_SQL_SERVER = os.getenv("DB_CONNECTION_SQL_SERVER") or get_environment('DB_CONNECTION_SQL_SERVER')
+DB_CONNECTION = os.getenv("DB_CONNECTION") or get_environment('DB_CONNECTION')
 
 if FLASK_ENV == "local":
-    CONFIG_TYPE = get_environment('DB_CONNECTION_TYPE', 'MYSQL').upper()
-    #PATH_PEM = get_environment('PATH_PEM', 'DigiCertGlobalRootG2.crt.pem')
-
     if CONFIG_TYPE == 'SQL_SERVER':
-        CONFIG = json.loads(get_environment('DB_CONNECTION_SQL_SERVER'))
+        CONFIG = json.loads(DB_CONNECTION_SQL_SERVER)
 
         DB_SERVER = CONFIG['server']
         DB_NAME = CONFIG['database']
@@ -28,7 +31,7 @@ if FLASK_ENV == "local":
         #     f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
         # )
     else:
-        CONFIG = json.loads(get_environment('DB_CONNECTION'))
+        CONFIG = json.loads(DB_CONNECTION)
 
         DB_USER = CONFIG['user']
         DB_PASSWORD = CONFIG['password']
@@ -41,7 +44,7 @@ if FLASK_ENV == "local":
             f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
         )
 else:
-    CONFIG = json.loads(get_environment('DB_CONNECTION'))
+    CONFIG = json.loads(DB_CONNECTION)
 
     DB_USER = CONFIG['user']
     DB_PASSWORD = CONFIG['password']
@@ -66,8 +69,8 @@ engine = create_engine(DATABASE_URL,
                         future=True,                        
                         connect_args={
                             "ssl": {
-                                #"ca": ".\db\DigiCertGlobalRootG2.crt.pem"
-                                "ca": "/app/certs/mysql-ca-cert"
+                                "ca": ".\db\DigiCertGlobalRootG2.crt.pem"
+                                #"ca": "/app/certs/mysql-ca-cert"
                             }
                         }
                         )

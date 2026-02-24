@@ -5,13 +5,21 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from urllib.parse import quote_plus
 from utils.environment import get_environment
 
-FLASK_ENV = os.getenv("APP_ENV") or get_environment("APP_ENV")
-if not FLASK_ENV:
-    raise RuntimeError("APP_ENV no está definida en el entorno del Job.")
+try:
+    from utils.environment import get_environment
+except Exception:
+    get_environment = lambda *args, **kwargs: None  # respaldo inofensivo
 
-CONFIG_TYPE = os.getenv("DB_CONNECTION_TYPE") or get_environment('DB_CONNECTION_TYPE', 'MYSQL')
-DB_CONNECTION_SQL_SERVER = os.getenv("DB_CONNECTION_SQL_SERVER") or get_environment('DB_CONNECTION_SQL_SERVER')
-DB_CONNECTION = os.getenv("DB_CONNECTION") or get_environment('DB_CONNECTION')
+def _get(name, default=None):
+    # Prioriza env del contenedor (lo que define el Job en Azure)
+    return os.getenv(name) or get_environment(name) or default
+
+# En Job no necesitamos APP_ENV para nada; define un valor por defecto estable
+FLASK_ENV = _get("APP_ENV", "production")
+
+CONFIG_TYPE = _get("DB_CONNECTION_TYPE", "MYSQL")
+DB_CONNECTION = _get("DB_CONNECTION")
+DB_CONNECTION_SQL_SERVER = _get("DB_CONNECTION_SQL_SERVER")
 
 if FLASK_ENV == "local":
     if CONFIG_TYPE == 'SQL_SERVER':

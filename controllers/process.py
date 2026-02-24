@@ -49,8 +49,8 @@ def new_Process():
         if not user_id:
             return jsonify({'error': 'Falta Id de Usuario'}), 400      
 
-        #job_id = storage.create_job()
-        job_id = ''
+        job_id = storage.create_job()
+        #job_id = ''
 
         def run_prov():
             try:
@@ -127,7 +127,7 @@ def new_Process():
                     print(f"Error FINAL en job {job_id}: {e}")
                     return
                     
-        threading.Thread(target=run_prov).start()
+        threading.Thread(target=run).start()
 
         return jsonify({"jobId": job_id}), 200
 
@@ -140,6 +140,7 @@ def create(job_id, rule_id, matrixsap_id, name, description, user_id):
     try:        
         now = datetime.now()
         campo_transaccion = config.TRANSACTION_OBJECT
+        progress = 0
         HISTORY = 0
 
         with SessionLocal() as session:
@@ -156,6 +157,9 @@ def create(job_id, rule_id, matrixsap_id, name, description, user_id):
                 proceso.Estado = 1
                 session.add(proceso)
                 session.flush()
+
+                progress += 20
+                storage.update_progress(job_id, progress)
 
                 # 1. Obtener Objeto Proceso
                 sap_objeto_proceso = session.scalar(
@@ -235,6 +239,9 @@ def create(job_id, rule_id, matrixsap_id, name, description, user_id):
                             BATCH = []
                 result.close()
 
+                progress += 25
+                storage.update_progress(job_id, progress)
+
                 #prefijos
                 sql = "CALL sp_prefijos_select(%s,%s,%s)"    
                 
@@ -293,6 +300,10 @@ def create(job_id, rule_id, matrixsap_id, name, description, user_id):
                             BATCH = []
                 result.close()
 
+                progress += 25
+                storage.update_progress(job_id, progress)
+            
+
                 #complejos
                 sql = "CALL sp_complejos_select(%s,%s,%s)"    
                 
@@ -350,6 +361,9 @@ def create(job_id, rule_id, matrixsap_id, name, description, user_id):
                             session.execute(stmt)
                             BATCH = []
                 result.close()
+
+                progress += 25
+                storage.update_progress(job_id, progress)
 
                 result = session.query(UsuarioTransaccion).filter_by(IdProceso = proceso.Id).count()
 

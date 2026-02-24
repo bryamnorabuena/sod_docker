@@ -57,10 +57,10 @@ def import_file():
         if not user_id:
             return jsonify({'error': 'Falta Id de Usuario'}), 400        
 
-        #job_id = storage.create_job()
+        job_id = storage.create_job()
 
         #PROVISIONAL
-        job_id = ''
+        #job_id = ''
         def run_prov():
             MAX_ATTEMPTS = 3
             RETRY_DELAY = 5 # segundos
@@ -118,7 +118,6 @@ def import_file():
                     elif isinstance(response, list):
                         storage.update_job_with_errors(job_id, response)                                                
                     else:
-                        # Fallo LÓGICO sin excepción (e.g., datos iniciales faltantes)
                         storage.fail_job(job_id)
                         return
                         
@@ -142,7 +141,7 @@ def import_file():
                         print(f"Error FINAL en job {job_id}: {e}")
                         return
 
-        threading.Thread(target=run_prov).start()
+        threading.Thread(target=run).start()
 
         return jsonify({"jobId": job_id}), 200
     except Exception as e:
@@ -172,10 +171,10 @@ def rules_process_form(id_job, nombre, descripcion, archivo_base64, user_id):
         exist_rule = session.query(Regla).filter(Regla.Nombre == nombre).first()
 
         if exist_rule:
-            #storage.update_job_with_errors(id_job, [f"La regla con nombre '{nombre}' ya existe."])
+            storage.update_job_with_errors(id_job, [f"La regla con nombre '{nombre}' ya existe."])
             return False
 
-        #storage.update_progress(id_job, 10)  
+        storage.update_progress(id_job, 10)  
 
         new_rule = Regla(
             Nombre=nombre,
@@ -191,7 +190,7 @@ def rules_process_form(id_job, nombre, descripcion, archivo_base64, user_id):
         session.flush()
         regla_id = new_rule.Id
 
-        #storage.update_progress(id_job, 20)
+        storage.update_progress(id_job, 20)
 
         response = import_file_regla(contenido_base64, new_rule.Id, user_id=user_id, session=session, id_job=id_job)
 
@@ -201,11 +200,9 @@ def rules_process_form(id_job, nombre, descripcion, archivo_base64, user_id):
         elif isinstance(response, list):
             session.rollback()            
             return response
-            #storage.update_job_with_errors(id_job, response)
-            #return False
         else:
             session.rollback()            
-            #storage.update_job_with_errors(id_job, ["Error desconocido al importar la regla."])
+            storage.update_job_with_errors(id_job, ["Error desconocido al importar la regla."])
             return False
     except Exception as e:
         raise Exception(f"Error en la función rules_process_form: {e}")
@@ -260,7 +257,7 @@ def import_file_regla(file_base64, regla_id, user_id, session=None, id_job=None)
 
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    #storage.update_progress(id_job, 25)
+    storage.update_progress(id_job, 25)
 
     file_bytes = base64.b64decode(file_base64)
     excel_file = BytesIO(file_bytes)
@@ -280,7 +277,7 @@ def import_file_regla(file_base64, regla_id, user_id, session=None, id_job=None)
         sheet = wb[hoja_funciones]
         rows = list(sheet.iter_rows(values_only=True))
 
-        #storage.update_progress(id_job, 15)
+        storage.update_progress(id_job, 15)
 
         # Índices de columnas (como en PHP)
         i_actividad = 1
@@ -415,7 +412,7 @@ def import_file_regla(file_base64, regla_id, user_id, session=None, id_job=None)
                     "mensaje": f"El sistema de la actividad '{codigo_actividad}' no existe"
                 })         
     
-    #storage.update_progress(id_job, 30)
+    storage.update_progress(id_job, 30)
 
     #HOME READ MATRIZ PERMISOS
     hoja_funciones = "III. Permisos"
@@ -430,7 +427,7 @@ def import_file_regla(file_base64, regla_id, user_id, session=None, id_job=None)
         sheet = wb[hoja_funciones]
         rows = list(sheet.iter_rows(values_only=True))
 
-        #storage.update_progress(id_job, 45)
+        storage.update_progress(id_job, 45)
 
         i_actividad = 0
         i_transaccion = 1
@@ -560,7 +557,7 @@ def import_file_regla(file_base64, regla_id, user_id, session=None, id_job=None)
                 session.add(new_sapobjctfield)
                 session.flush()
 
-    #storage.update_progress(id_job, 50)
+    storage.update_progress(id_job, 50)
 
     #HOME READ MATRIZ - HOJA REGLAS
     hoja_funciones = "I. Reglas SoD"
@@ -575,7 +572,7 @@ def import_file_regla(file_base64, regla_id, user_id, session=None, id_job=None)
         sheet = wb[hoja_funciones]
         rows = list(sheet.iter_rows(values_only=True))
 
-        #storage.update_progress(id_job, 75)
+        storage.update_progress(id_job, 75)
         
         i_codigoriesgo = 1
         i_descripcionriesgo = 2
@@ -791,7 +788,7 @@ def import_file_regla(file_base64, regla_id, user_id, session=None, id_job=None)
             if bolRiesgo and 'actividad_transacciones' in locals():
                 session.flush()
 
-    #storage.update_progress(id_job, 80)
+    storage.update_progress(id_job, 80)
     
     if len(errores) > 0:       
         print("Regla con errores:")     

@@ -7,7 +7,7 @@ from uuid import uuid4
 from utils.helper import Helper
 
 CONNECTION_STRING = get_environment("AZUREWEBJOBSTORAGE")
-TABLE_NAME = "AnalysisProgress"
+TABLE_NAME = "SodProgress"
 
 def get_table_client():
     service = TableServiceClient.from_connection_string(CONNECTION_STRING)

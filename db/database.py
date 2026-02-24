@@ -66,7 +66,7 @@ engine = create_engine(DATABASE_URL,
                         future=True,                        
                         connect_args={
                             "ssl": {
-                                #"ca": PATH_PEM
+                                #"ca": ".\db\DigiCertGlobalRootG2.crt.pem"
                                 "ca": "/app/certs/mysql-ca-cert"
                             }
                         }

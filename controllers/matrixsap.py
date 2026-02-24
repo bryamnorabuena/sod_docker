@@ -57,8 +57,8 @@ def new():
         if not user_id:
             return jsonify({'error': 'Falta Id de Usuario'}), 400      
 
-        #job_id = storage.create_job()
-        job_id = ''
+        job_id = storage.create_job()
+        #job_id = ''
 
         def run_prov():
             try:
@@ -110,10 +110,10 @@ def new():
 
                     storage.update_job_with_errors(job_id, [error_msg])
                     storage.fail_job(job_id)
-                    print(f"Error FINAL en job {job_id}: {e}")
+                    print(f"Error en job {job_id}: {e}")
                     return
                     
-        threading.Thread(target=run_prov).start()
+        threading.Thread(target=run).start()
 
         return jsonify({"jobId": job_id}), 200
 
@@ -128,12 +128,13 @@ def set_sod_matrix(job_id, name, description, file_base64, current_user):
     UsuariosMemory = {}
     PerfilMemory = {}
     TipoUsuariosMemory = {}
+    progress = 0
 
     with SessionLocal() as session:
         with session.begin():
             try:
                 BATCH_USUARIOPERFIL = []
-                LIMIT_BATCH_USUARIOPERFIL = 300
+                LIMIT_BATCH_USUARIOPERFIL = 5000
                 time_start = time.perf_counter() 
                 now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')                
 
@@ -151,7 +152,8 @@ def set_sod_matrix(job_id, name, description, file_base64, current_user):
                 session.add(matrizsap)
                 session.flush()
 
-                #storage.update_progress(job_id, 25)
+                progress += 15
+                storage.update_progress(job_id, progress)
 
                 # Aquí podrías manejar el guardado de archivos si is_new
                 base64_zip = file_base64
@@ -177,11 +179,20 @@ def set_sod_matrix(job_id, name, description, file_base64, current_user):
                 
                 print("Procesando USORG.txt")
                 process_USORG(session, zip_in_memory, matrizsap.Id, 1)
+                progress += 4
+                storage.update_progress(job_id, progress)
+
                 print("Procesando UST04.txt")
                 process_UST04(session, zip_in_memory, matrizsap.Id, 1, 1,
                             UsuariosMemory, PerfilMemory, UsuarioPerfilesMemory)                                            
+                progress += 4
+                storage.update_progress(job_id, progress)
+
                 print("Procesando UST10C.txt")
                 process_UST10C(session,zip_in_memory,matrizsap.Id,1,PerfilMemory,PerfilSubPerfilMemory,SubPerfilMemory)
+                progress += 4
+                storage.update_progress(job_id, progress)
+
                 for item in UsuarioPerfilesMemory:
                     id_usuario = item["IdUsuario"]
                     id_perfil = item['IdSapPerfil']
@@ -210,35 +221,61 @@ def set_sod_matrix(job_id, name, description, file_base64, current_user):
                     session.execute(insert(SapUsuarioPerfil.__table__).values(BATCH_USUARIOPERFIL))
                     session.flush()                    
                     BATCH_USUARIOPERFIL.clear()
+                    
+                progress += 4
+                storage.update_progress(job_id, progress)
 
                 print("Procesando UST10S.txt")
                 process_UST10S(session,zip_in_memory,matrizsap.Id,1,PerfilMemory,ObjetosMemory,AutorizacionMemory)
+                progress += 10
+                storage.update_progress(job_id, progress)
+
                 print("Procesando UST12.txt")
                 process_UST12(session,zip_in_memory,matrizsap.Id,1,ObjetosMemory,AutorizacionMemory,CamposMemory)
+                progress += 10
+                storage.update_progress(job_id, progress)
+
                 print("Procesando AGR_USERS.txt")
-                process_AGR_USERS(session,zip_in_memory,matrizsap.Id,1,1,RolMemory,UsuariosMemory)                
+                process_AGR_USERS(session,zip_in_memory,matrizsap.Id,1,1,RolMemory,UsuariosMemory)         
+                progress += 10
+                storage.update_progress(job_id, progress)
+
                 print("Procesando USR02.txt")
                 process_USR02(session, zip_in_memory, matrizsap.Id, 1, 1,
                             UsuariosMemory, TipoUsuariosMemory, 7,
                             config.MIN_DATE_PHP,config.MAX_DATE_PHP)
+                progress += 4
+                storage.update_progress(job_id, progress)
+
                 print("Procesando AGR_1251.txt")
                 process_AGR_1251(session, zip_in_memory, matrizsap.Id, 1,
                          RolMemory, ObjetosMemory, AutorizacionMemory, CamposMemory)  
+                progress += 10
+                storage.update_progress(job_id, progress)
+
                 print("Procesando AGR_1252.txt")
-                process_AGR_1252(session, zip_in_memory, matrizsap.Id, 1, RolMemory)       
+                process_AGR_1252(session, zip_in_memory, matrizsap.Id, 1, RolMemory)  
+                progress += 4
+                storage.update_progress(job_id, progress)
+
                 print("Procesando AGR_GRS.txt")
                 process_AGR_AGRS(session, zip_in_memory, matrizsap.Id, 1,
                                 RolMemory, RolSubRolMemory)                                 
+                progress += 4
+                storage.update_progress(job_id, progress)
+
                 print("Procesando CATALOGO.csv")
                 process_CATALOGO(session, zip_in_memory, matrizsap.Id, 1,
-                                CatalogoMemory, AppFioriMemory, CatalogoAppFioriMemory)     
+                                CatalogoMemory, AppFioriMemory, CatalogoAppFioriMemory)  
+                progress += 4
+                storage.update_progress(job_id, progress)
+
                 print("Procesando ROL.csv")
                 process_ROL(session, zip_in_memory, matrizsap.Id, 1,
                             RolMemory, CatalogoMemory, RolCatalogoMemory) 
-
-                    
-
-                #FALTA CREAR BLOB Y GUARDAR EL ZIP                
+                progress += 4
+                storage.update_progress(job_id, progress)                
+                
                 return True                
             except Exception as e:
                 print(str(e))
@@ -249,18 +286,10 @@ def set_sod_matrix(job_id, name, description, file_base64, current_user):
                 exc_type, exc_obj, exc_tb = sys.exc_info()
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                 print(f"Error at {fname}:{exc_tb.tb_lineno}: {e}")
+                storage.update_job_with_errors(job_id, [f"Error: {e} at {fname}:{exc_tb.tb_lineno}"])
 
-                LogRepository().insert_log(str(e))
                 return False
-
-            process_USORG(session, zip_path, matriz_id, app_user_id)
-            process_UST04(session, zip_path, matriz_id, id_empresa, app_user_id,
-                        UsuariosMemory, PerfilMemory)
-            process_USR02(session, zip_path, matriz_id, id_empresa, app_user_id,
-                        UsuariosMemory, TipoUsuariosMemory, generica_tipo_usuario_id,
-                        min_date_php, max_date_php)
-     
-    
+      
 
 def get_batch_limit(text_file):    
     """Determine batch limit based on total lines."""
@@ -1265,24 +1294,3 @@ def process_ROL(session: Session, zip_path: str, matriz_id: int, app_user_id: in
     if rows:
         session.execute(insert(SapRolCatalogo.__table__).values(rows))
         session.flush(); rows.clear()
-# --------------------------------------------------------------------
-# Orquestador: procesa los 3 archivos en una transacción (como PHP)
-# --------------------------------------------------------------------
-def process_zip_min(session: Session, zip_path, matriz_id: int,
-                    id_empresa: int, app_user_id: int,
-                    generica_tipo_usuario_id: int,
-                    min_date_php: str, max_date_php: str):
-    """
-    Ejecuta USORG, UST04 y USR02 en una única transacción (begin/commit).
-    """
-    UsuariosMemory = {}
-    PerfilMemory = {}
-    TipoUsuariosMemory = {}
-
-    with session.begin():  # commit automático al final si no hay excepción
-        process_USORG(session, zip_path, matriz_id, app_user_id)
-        process_UST04(session, zip_path, matriz_id, id_empresa, app_user_id,
-                      UsuariosMemory, PerfilMemory)
-        process_USR02(session, zip_path, matriz_id, id_empresa, app_user_id,
-                      UsuariosMemory, TipoUsuariosMemory, generica_tipo_usuario_id,
-                      min_date_php, max_date_php)

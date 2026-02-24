@@ -84,9 +84,8 @@ def process_form():
         if not user_id:
             return jsonify({'error': 'Falta Id de Usuario'}), 400
         
-        job_id = ''
-        
-        
+        job_id = storage.create_job()
+                
         # ================================================================
         # 1. OBTENER CANTIDAD REAL DE USUARIOS PARA ESA VERSION
         # ================================================================
@@ -188,39 +187,7 @@ def process_form():
             "jobId": job_id,
             "shards": shards,
             "status": "processing"
-        }), 200
-
-        
-
-        # #job_id = storage.create_job_conflict(id_version, user_id)        
-        # job_id = ''
-
-        # def run_prov():
-        #     try:
-        #         response = process_execute_opt(token=token,id_version=id_version, job_id=job_id, user_id=user_id)
-                
-        #         if response:
-        #             print("Análisis completo")
-        #         elif isinstance(response, list):
-        #             print("Análisis con errores")
-        #             for item in response:
-        #                 print(item)
-        #         else:
-        #             print("Error en análisis")
-                    
-        #     except Exception as e:
-        #         print(e)
-        #         print(f"Error FINAL en job {job_id}: {e}")        
-
-        #     except Exception as e:
-        #         print(e)
-        #         print(f"Error FINAL en job {job_id}: {e}")
-        #         # storage.update_job_with_errors(job_id, [e])
-        #         #storage.fail_job(job_id)
-                                    
-        # threading.Thread(target=run_prov).start()
-
-        # return jsonify({"jobId": job_id}), 200
+        }), 200        
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -2109,9 +2076,12 @@ def process_execute_optimized(token, id_version, job_id, user_id, only_user_ids)
     IntBatch  = 0
     IntUsuario = 0
     batchConflicto = 0
+    progress = 0
     # En SQLAlchemy, desactivar logs de SQL se hace a nivel de engine/logger (no por conexión como Doctrine)
 
     print(f"Inicio de Análisis: {str(time_start)}")
+    progress += 5
+    storage.update_progress(job_id, progress)
 
     try:
         with SessionLocal() as session:
@@ -2344,15 +2314,23 @@ def process_execute_optimized(token, id_version, job_id, user_id, only_user_ids)
                                     UsuarioTransaccion.IdUsuario.in_(only_user_ids)
                                 ).group_by(UsuarioTransaccion.IdUsuario).order_by(UsuarioTransaccion.Id).all()
 
+                progress += 5
+                storage.update_progress(job_id, progress)
+
                 print(f"Usuarios a analizar: {len(Usuarios)}")
+
+                progress_per_user = 70 / len(Usuarios) if len(Usuarios) > 0 else 0
                 # --- Bucle principal por usuario ---
                 for usuario in Usuarios:
                     IntBatch += 1
                     IntUsuario += 1
 
+                    progress += progress_per_user
+                    storage.update_progress(job_id, progress)
+
                     IdUsuario = usuario.IdUsuario
 
-                    print(f"Usuario en análisis: {str(IdUsuario)}")                                    
+                    print(f"Job {job_id} - Usuario en análisis: {str(IdUsuario)}")                                    
 
                     SapPerfilesUsuario, DatoRoles_General, roles_usuario, RolCampoValores_General, CampoValores_Extra_General = prefetch_data_user(session, IdUsuario, proceso)
 
@@ -2568,7 +2546,6 @@ def process_execute_optimized(token, id_version, job_id, user_id, only_user_ids)
                 procesoObj.Cantidad = cantidad
                 versionObj.Procesado = True
                 procesoObj.Procesado = True                
-                print("Análisis Completo.")
                 return True
 
     except Exception as e:

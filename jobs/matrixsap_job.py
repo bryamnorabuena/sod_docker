@@ -2,6 +2,8 @@
 import os, sys, json, requests, io
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(ROOT_DIR)
+print("[DBG] APP_ENV:", os.getenv("APP_ENV"))
+print("[DBG] HAS_DB_CONNECTION:", bool(os.getenv("DB_CONNECTION")))
 
 from utils import storage
 
@@ -25,6 +27,7 @@ from sqlalchemy.orm import Session
 def main():
     try:
         raw = os.getenv("INPUT_JSON")
+        #raw = _get_payload()
         data = json.loads(raw)
 
         # Campos esperados desde tu API
@@ -1232,7 +1235,20 @@ def process_ROL(session: Session, zip_path: str, matriz_id: int, app_user_id: in
         session.execute(insert(SapRolCatalogo.__table__).values(rows))
         session.flush(); rows.clear()
 
+# jobs/matrixsap_job.py (arriba del main)
+import argparse
 
+def _get_payload():
+    raw_env = os.getenv("INPUT_JSON")
+    if raw_env: 
+        return raw_env
+    # fallback por argumento --payload
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--payload")
+    args, _ = parser.parse_known_args()
+    if not args.payload:
+        raise RuntimeError("Falta INPUT_JSON o --payload")
+    return args.payload
 
 if __name__ == "__main__":
     main()

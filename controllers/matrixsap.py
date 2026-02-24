@@ -76,9 +76,10 @@ def new():
                 {
                 "name": "runner",
                 "image": "sodregistryconflicts1.azurecr.io/aca-mastersap:latest",
-                "env": [
-                    { "name": "INPUT_JSON", "value": json.dumps(input_json) }
-                ]
+                "args": ["--payload", json.dumps(input_json)]
+                # ,"env": [
+                #     { "name": "INPUT_JSON", "value": json.dumps(input_json) }
+                # ]
                 }
             ]
 

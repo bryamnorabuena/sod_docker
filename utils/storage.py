@@ -1,12 +1,16 @@
+from datetime import datetime, timedelta
 import json
 import os
 from azure.data.tables import TableServiceClient, UpdateMode
-from azure.storage.blob import BlobServiceClient
+from azure.storage.blob import BlobSasPermissions, BlobServiceClient, generate_blob_sas
+from azure.storage.blob import BlobClient
+from base64 import b64decode
 from utils.environment import load_environment, get_environment
 from uuid import uuid4
 from utils.helper import Helper
 
 CONNECTION_STRING = get_environment("AZUREWEBJOBSTORAGE")
+KEY = get_environment("AZURESTORAGEKEY")
 TABLE_NAME = "SodProgress"
 
 def get_table_client():
@@ -96,4 +100,30 @@ def create_blob_container(container_name):
     blob_service_client = BlobServiceClient.from_connection_string(CONNECTION_STRING)
     container_client = blob_service_client.create_container(container_name)
     return container_client
+
+def upload_zip_and_get_url(base64_zip, job_id):
+    zip_bytes = b64decode(base64_zip)
+    blob_name = f"mastersap/{job_id}.zip"
+
+    blob = BlobClient.from_connection_string(
+        conn_str=CONNECTION_STRING,
+        container_name="inputs",
+        blob_name=blob_name
+    )
+    blob.upload_blob(zip_bytes, overwrite=True)
+
+    # URL pública o SAS    
+    sas_token = generate_blob_sas(
+        account_name=blob.account_name,
+        container_name="inputs",
+        blob_name=blob_name,
+        account_key=KEY,   # Necesitas la Storage Account Key
+        permission=BlobSasPermissions(read=True),
+        expiry=datetime.now() + timedelta(hours=12)  # válido por 12
+    )
+
+    # 6. URL completa (lista para pasar al Job)
+    sas_url = f"{blob.url}?{sas_token}"
+    return sas_url
+
 

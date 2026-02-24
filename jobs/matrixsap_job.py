@@ -1,161 +1,65 @@
+# jobs/matrixsap_job.py
+import os, sys, json, requests, io
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(ROOT_DIR)
+
+from utils import storage
+
 import json
 import sys
-import threading
 from datetime import datetime
 import zipfile
-import base64
 import time
 import os
 import time
 
-from flask import Blueprint, request, jsonify
-from sqlalchemy import and_, desc, exc, select, insert
+from sqlalchemy import select, insert
 from io import BytesIO
 from db.database import SessionLocal
 from models import *
 from config import config
 from utils import storage
-from services.nsg_service import *
-from azure.identity import DefaultAzureCredential
-
 from sqlalchemy.orm import Session
 
-from utils.environment import get_environment
 
-matrixsap = Blueprint('matrixsap', __name__)
+def main():
+    try:
+        raw = os.getenv("INPUT_JSON")
+        data = json.loads(raw)
 
-comodin = '*'
+        # Campos esperados desde tu API
+        job_id       = data.get("job_id")  # lo genera la API http; si no, lo crea el job
+        name         = data["name"]
+        description  = data.get("description", "")
+        zip_url = data["zip_url"]
+        user_id      = data["iduser"]
 
-@matrixsap.route('/new', methods=['POST'])
-def new():
-    try: 
-        body = request.get_json(silent=True)
-        name = body.get("name")
-        description = body.get("description") or ''
-        file_base64 = body.get("filebase64")
-        user_id = body.get("iduser")
+        if not job_id:
+            job_id = storage.create_job()
 
-        if not name:
-            return jsonify({"error": "Falta Nombre"}), 400
-        if not description:
-            description = ''
-        if not file_base64:
-            return jsonify({"error": "Falta Archivo"}), 400    
-        if not user_id:
-            return jsonify({'error': 'Falta Id de Usuario'}), 400      
-
-        job_id = storage.create_job()
-
-        zip_url = storage.upload_zip_and_get_url(file_base64, job_id)
+        print(f"[JOB] starting job_id={job_id}")  # visible en logs
         
-        input_json = {
-            "job_id": job_id,
-            "name": name,
-            "description": description,
-            "zip_url": zip_url,
-            "iduser": user_id
-        }
-        print(input_json)
+        resp = requests.get(zip_url)
+        zip_bytes = resp.content
 
-        # 3) Autenticación a ARM con Managed Identity
-        cred  = DefaultAzureCredential()
-        token = cred.get_token("https://management.azure.com/.default").token
+        zip_in_memory = io.BytesIO(zip_bytes)
 
-        # 4) Endpoint REST oficial para iniciar la ejecución del Job (START)        
-        subscription_id = os.getenv("SUBSCRIPTION_ID")
-        resource_group  = os.getenv("RESOURCE_GROUP")
-        job_name        = os.getenv("MATRIX_SAP_CONTAINER_NAME")
-        ARM_BASE        = "https://management.azure.com"
-        url = (f"{ARM_BASE}/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
-               f"/providers/Microsoft.App/jobs/{job_name}/start?api-version=2025-07-01")
+        ok = set_sod_matrix(job_id, name, description, zip_in_memory, user_id)
 
-        # Enviamos INPUT_JSON como env var (tu runner la lee con os.getenv('INPUT_JSON'))
-        body_start = {
-            "containers": [
-                {
-                    "name": "runner",  # debe coincidir con el nombre de contenedor del Job (si lo especificaste)
-                    "env": [
-                        {"name": "INPUT_JSON", "value": json.dumps(input_json)}
-                    ]
-                }
-            ]
-        }
-
-        resp = requests.post(
-            url,
-            headers={"Authorization": f"Bearer {token}",
-                     "Content-Type": "application/json"},
-            json=body_start,
-            timeout=30
-        )
-
-        # 5) Manejo de respuesta del START
-        if resp.status_code not in (200, 202):
-            try:
-                details = resp.json()
-            except Exception:
-                details = {"status_code": resp.status_code, "text": resp.text[:500]}
-            return jsonify({"error": "No se pudo iniciar el Job en ACA", "details": details}), 502
-
-        azure_execution_id = None
-        if resp.status_code == 200:
-            azure_execution_id = resp.json().get("name")  # execution name de Azure
-            # (La doc del endpoint START describe que retorna el nombre/ID de la ejecución si está listo) [1](https://oneuptime.com/blog/post/2026-02-16-how-to-deploy-a-microservice-to-azure-container-apps-with-custom-scaling-rules/view)
-        # Si es 202 Accepted, a veces solo hay Location para polling; puedes devolver azureExecutionId=None
-        # y resolverlo más tarde, pero con 200 ya tienes el nombre.
-
-        # 6) Respuesta al cliente con ambos identificadores
-        return jsonify({
-            "jobId": job_id,                   # tu ID de tracking para el progreso
-            "azureExecutionId": azure_execution_id  # el execution name del Job en Azure
-        }), 202
-
-
-
-
-
-        def run():
-            MAX_ATTEMPTS = 3
-
-            for attempt in range(1, MAX_ATTEMPTS + 1):
-                try:
-                    print(f"Iniciando intento {attempt} para job {job_id}")
-                    storage.update_progress(job_id, 10)
-                    
-                    response = set_sod_matrix(job_id, name, description, file_base64, user_id)                    
-                    
-                    print(f"Termina llamada a función set_sod_matrix")
-
-                    if response:
-                        storage.complete_job(job_id)
-                        return
-                    elif isinstance(response, list):
-                        storage.update_job_with_errors(job_id, response)                                                
-                    else:
-                        storage.fail_job(job_id)
-                        return                        
-                except Exception as e:
-                    exc_type, exc_obj, exc_tb = sys.exc_info()
-                    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-
-                    error_msg = f"Error para job {job_id}: {e} en {fname}:{exc_tb.tb_lineno}"
-
-                    storage.update_job_with_errors(job_id, [error_msg])
-                    storage.fail_job(job_id)
-                    print(f"Error en job {job_id}: {e}")
-                    return
-                    
-        threading.Thread(target=run).start()
-
-        return jsonify({"jobId": job_id}), 200
-
+        if ok:
+            storage.complete_job(job_id)
+            print(f"[JOB] completed job_id={job_id}")
+        else:
+            storage.fail_job(job_id)
+            print(f"[JOB] failed job_id={job_id}", file=sys.stderr)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    except exc.SQLAlchemyError as e:
-        return jsonify({"error": f"SQLALCHEMY:{e}"}), 500
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        error_msg = f"Error para job {job_id}: {e} en {fname}:{exc_tb.tb_lineno}"
 
+        storage.update_job_with_errors(job_id, [error_msg])        
+        print(f"Error en job {job_id}: {e}")
 
-#BRNC ORIGINAL
 def set_sod_matrix(job_id, name, description, file_base64, current_user):
     UsuariosMemory = {}
     PerfilMemory = {}
@@ -1327,3 +1231,8 @@ def process_ROL(session: Session, zip_path: str, matriz_id: int, app_user_id: in
     if rows:
         session.execute(insert(SapRolCatalogo.__table__).values(rows))
         session.flush(); rows.clear()
+
+
+
+if __name__ == "__main__":
+    main()

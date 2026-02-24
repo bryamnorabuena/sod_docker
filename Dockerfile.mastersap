@@ -1,0 +1,13 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+COPY . /app
+
+# instalo solo lo necesario
+RUN pip install --no-cache-dir -r requirements.txt
+
+# # Asegurar carpeta para el CA del MySQL (si usas secret volume)
+# RUN mkdir -p /app/certs
+
+# Ejecutamos SOLO el job runner
+ENTRYPOINT ["python", "jobs/matrixsap_job.py"]

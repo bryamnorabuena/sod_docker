@@ -162,6 +162,8 @@ def main():
       else:
           livianos.append(u_id)
 
+    session.close()
+
     print(f"Clasificación terminada: {len(livianos)} livianos, {len(pesados)} pesados.")
 
     # 2. LANZAMIENTO DE LIVIANOS (Carril Rápido - 3 CPUs)

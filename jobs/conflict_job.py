@@ -1386,6 +1386,8 @@ def process_execute(only_user_ids,id_version, job_id, user_id, total_users, idx_
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
         message = f"Exception en SHARD #{idx_shard} de la versión #{id_version}: {e} in {fname}:{exc_tb.tb_lineno}"
         print(message)
+    finally:
+        session.close()
 
 
 if __name__ == "__main__":   

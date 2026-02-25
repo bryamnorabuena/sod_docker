@@ -8,7 +8,7 @@ from datetime import date, time as dtime, timedelta, timezone
 from fnmatch import fnmatch
 from pathlib import Path
 from zoneinfo import ZoneInfo
-from flask import Blueprint, request, current_app, session, abort, jsonify
+from flask import Blueprint, json, request, current_app, session, abort, jsonify
 from sqlalchemy import and_, asc, desc, func, insert, select, text
 from validator import rules, validate
 from config import config
@@ -90,104 +90,79 @@ def process_form():
         # 1. OBTENER CANTIDAD REAL DE USUARIOS PARA ESA VERSION
         # ================================================================
 
-        session = SessionLocal()
-        
-        version = session.get(Version, id_version)
-        proceso = session.get(Proceso, version.IdProceso)
-
-        if version.Completo:
-            total_users = session.query(func.count(func.distinct(UsuarioTransaccion.IdUsuario))
-                ).join(SapUsuario, and_(SapUsuario.IdUsuario == UsuarioTransaccion.IdUsuario, SapUsuario.IdMatrizSap == proceso.IdMatrizSap)
-                ).filter(and_(UsuarioTransaccion.IdProceso == proceso.Id,
-                        SapUsuario.FechaInicio <= now_dt,
-                        SapUsuario.FechaFin >= now_dt,
-                        SapUsuario.Uflag.in_([0,128]))
-                        ).scalar()
+        try:            
+            session = SessionLocal()
             
-            # Lista real de usuarios
-            all_users = [
-                uid for (uid,) in session.query(
-                        UsuarioTransaccion.IdUsuario
-                    ).join(SapUsuario, and_(SapUsuario.IdUsuario == UsuarioTransaccion.IdUsuario, SapUsuario.IdMatrizSap == proceso.IdMatrizSap)
-                    ).filter(and_(UsuarioTransaccion.IdProceso == proceso.Id,
-                        SapUsuario.FechaInicio <= now_dt,
-                        SapUsuario.FechaFin >= now_dt,
-                        SapUsuario.Uflag.in_([0,128]))
-                        ).group_by(UsuarioTransaccion.IdUsuario
-                        ).order_by(UsuarioTransaccion.IdUsuario).distinct().all()
-            ]
+            version = session.get(Version, id_version)
+
+            if not version:
+                return jsonify({"error": f"Version {id_version} no encontrada"}), 404
+            
+            input_json = {
+                "job_id": job_id,
+                "id_version": id_version,                
+                "iduser": user_id
+            }
+            print(input_json)
+
+            # 3) Autenticación a ARM con Managed Identity
+            cred  = DefaultAzureCredential()
+            token = cred.get_token("https://management.azure.com/.default").token
+
+            # 4) Endpoint REST oficial para iniciar la ejecución del Job (START)        
+            subscription_id = os.getenv("SUBSCRIPTION_ID")
+            resource_group  = os.getenv("RESOURCE_GROUP")
+            job_name        = os.getenv("CONFLICT_CONTAINER_NAME")
+            ARM_BASE        = "https://management.azure.com"
+            url = (f"{ARM_BASE}/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
+                f"/providers/Microsoft.App/jobs/{job_name}/start?api-version=2025-07-01")
+            
+            # Enviamos INPUT_JSON como env var (tu runner la lee con os.getenv('INPUT_JSON'))
+            body_start = {            
+                "containers": [
+                    {
+                    "name": "runner",
+                    "image": "sodregistryconflicts1.azurecr.io/aca-aca-conflicts:latest",
+                    "args": ["--payload", json.dumps(input_json)]
+                    ,"env": [
+                        { "name": "APP_ENV", "value": "production" },
+                        { "name": "INPUT_JSON", "value": json.dumps(input_json) },
+                        { "name": "DB_CONNECTION", "secretRef": "db-connection-secret"},
+                        { "name": "AZUREWEBJOBSTORAGE", "secretRef": "storage-connection-secret"},
+                        { "name": "DB_CONNECTION_TYPE", "value": os.getenv("DB_CONNECTION_TYPE", "MYSQL") }
+                    ]
+                    }
+                ]
+            }
+
+            resp = requests.post(
+                url,
+                headers={"Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json"},
+                json=body_start,
+                timeout=30
+            )
+
+            # 5) Manejo de respuesta del START
+            if resp.status_code not in (200, 202):
+                try:
+                    details = resp.json()
+                except Exception:
+                    details = {"status_code": resp.status_code, "text": resp.text[:500]}
+                return jsonify({"error": "No se pudo iniciar el Job en ACA", "details": details}), 502
+
+            azure_execution_id = None
+            if resp.status_code == 200:
+                azure_execution_id = resp.json().get("name")  # execution name de Azure
+            return jsonify({
+                "jobId": job_id,                   # tu ID de tracking para el progreso
+                "azureExecutionId": azure_execution_id  # el execution name del Job en Azure
+            }), 202
+        except Exception as e:
+            print(f"Error al invocar Job: {e}")
+            raise e
+        finally:
             session.close()
-        else:
-            total_users = session.query(
-                func.count(func.distinct(VersionUsuario.IdUsuario))
-            ).filter(
-                VersionUsuario.IdVersion == version.Id
-            ).scalar()
-
-            all_users = [
-                uid for (uid,) in session.query(
-                    VersionUsuario.IdUsuario
-                    ).filter(VersionUsuario.IdVersion == version.Id
-                ).distinct().all()
-            ]
-            session.close()
-
-        # ================================================================
-        # 2. CALCULAR SHARDS DINÁMICOS
-        # ================================================================
-        TARGET_PER_SHARD = 500
-        import math
-
-        shards = math.ceil(total_users / TARGET_PER_SHARD)
-
-        # Para no matar tu máquina local:
-        MAX_LOCAL_SHARDS = max(1, (os.cpu_count() // 2))
-        shards = min(shards, MAX_LOCAL_SHARDS)
-
-        print(f"TOTAL USERS={total_users} → SHARDS={shards}")
-
-        # Dividir usuarios por shard (round-robin)
-        shards_users = [[] for _ in range(shards)]
-        for idx, u in enumerate(all_users):
-            shard_idx = idx % shards
-            shards_users[shard_idx].append(u)
-
-        # ================================================================
-        # 3. LANZAR N THREADS, UNO POR SHARD
-        # ================================================================
-
-        def run_shard(shard_id, users_subset):
-            try:
-                print(f"[SHARD {shard_id}] Usuarios: {len(users_subset)}")
-
-                result = process_execute_optimized(
-                    token=token,
-                    id_version=id_version,
-                    job_id=f"{job_id}-S{shard_id}",
-                    user_id=user_id,
-                    only_user_ids=users_subset         # ← ← ← CLAVE
-                )
-
-                if result:
-                    print(f"[SHARD {shard_id}] Completo")
-                else:
-                    print(f"[SHARD {shard_id}] Error")
-            except Exception as e:
-                print(f"[SHARD {shard_id}] Exception: {e}")
-
-        # Lanzar los threads
-        for i in range(shards):
-            th = threading.Thread(target=run_shard, args=(i+1, shards_users[i]))
-            th.start()
-
-        # ================================================================
-        # 4. RESPONDER INMEDIATAMENTE
-        # ================================================================
-        return jsonify({
-            "jobId": job_id,
-            "shards": shards,
-            "status": "processing"
-        }), 200        
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -2065,7 +2040,6 @@ def FindObjectAuthorizationByPerfil_optimized(
         print(message)
         raise
     
-@profile
 def process_execute_optimized(token, id_version, job_id, user_id, only_user_ids):
     # ⚙️ Inicio de transacción y tiempo
     time_start = time.perf_counter()
@@ -2081,7 +2055,8 @@ def process_execute_optimized(token, id_version, job_id, user_id, only_user_ids)
 
     print(f"Inicio de Análisis: {str(time_start)}")
     progress += 5
-    storage.update_progress(job_id, progress)
+    print(f"Avance: {progress}%")
+    #storage.update_progress(job_id, progress)
 
     try:
         with SessionLocal() as session:
@@ -2211,21 +2186,13 @@ def process_execute_optimized(token, id_version, job_id, user_id, only_user_ids)
                 UsuariosRolesExtras = {}
                 UsuariosAutorizacionesExtras = {}
 
-                if version.Completo:
-                    #PARCHE                    
-                    subq = (
-                        session.query(Conflicto.IdUsuario)
-                        .filter(Conflicto.IdVersion == id_version)
-                        .group_by(Conflicto.IdUsuario)
-                    )                    
-                    
+                if version.Completo:                                 
                     Usuarios = session.query(UsuarioTransaccion
                         ).join(SapUsuario, and_(SapUsuario.IdUsuario == UsuarioTransaccion.IdUsuario, SapUsuario.IdMatrizSap == proceso.IdMatrizSap)
                         ).filter(and_(UsuarioTransaccion.IdProceso == proceso.Id,
                                 SapUsuario.FechaInicio <= now_dt,
                                 SapUsuario.FechaFin >= now_dt,
-                                SapUsuario.Uflag.in_([0,128]),
-                                SapUsuario.IdUsuario.notin_(subq))
+                                SapUsuario.Uflag.in_([0,128]))
                                 ).group_by(UsuarioTransaccion.IdUsuario
                                 ).order_by(UsuarioTransaccion.IdUsuario).all()                        
                 else:
@@ -2315,7 +2282,8 @@ def process_execute_optimized(token, id_version, job_id, user_id, only_user_ids)
                                 ).group_by(UsuarioTransaccion.IdUsuario).order_by(UsuarioTransaccion.Id).all()
 
                 progress += 5
-                storage.update_progress(job_id, progress)
+                print(f"Avance: {progress}%")
+                #storage.update_progress(job_id, progress)
 
                 print(f"Usuarios a analizar: {len(Usuarios)}")
 
@@ -2326,14 +2294,14 @@ def process_execute_optimized(token, id_version, job_id, user_id, only_user_ids)
                     IntUsuario += 1
 
                     progress += progress_per_user
-                    storage.update_progress(job_id, progress)
+                    print(f"Avance: {progress:.2f}% - Procesando usuario {IntUsuario}/{len(Usuarios)} (Batch {IntBatch})")
+                    #storage.update_progress(job_id, progress)
 
                     IdUsuario = usuario.IdUsuario
 
                     print(f"Job {job_id} - Usuario en análisis: {str(IdUsuario)}")                                    
 
                     SapPerfilesUsuario, DatoRoles_General, roles_usuario, RolCampoValores_General, CampoValores_Extra_General = prefetch_data_user(session, IdUsuario, proceso)
-
                     
                     #TRATAMIENTO PARA RECUDIR RAM
                     

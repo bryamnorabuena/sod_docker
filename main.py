@@ -18,7 +18,7 @@ from controllers.rule import rule
 from controllers.matrixsap import matrixsap
 from controllers.process import process
 from controllers.test import test
-from jobs.conflict import job_analize_conflicts
+from jobs.conflict_job import start
 from utils.validation import validate_input
 from utils.environment import load_environment, get_environment
 

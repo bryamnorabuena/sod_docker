@@ -76,10 +76,14 @@ def new():
                 {
                 "name": "runner",
                 "image": "sodregistryconflicts1.azurecr.io/aca-mastersap:latest",
-                "args": ["--payload", json.dumps(input_json)]
-                # ,"env": [
-                #     { "name": "INPUT_JSON", "value": json.dumps(input_json) }
-                # ]
+                "env": [
+                    { "name": "APP_ENV", "value": "production" },
+                    { "name": "INPUT_JSON", "value": json.dumps(input_json) },
+                    { "name": "DB_CONNECTION", "secretRef": "db-connection-secret"},
+                    { "name": "AZUREWEBJOBSTORAGE", "secretRef": "storage-connection-secret"},
+                    { "name": "AZURESTORAGEKEY", "secretRef": "storage-key-secret"},
+                    { "name": "DB_CONNECTION_TYPE", "value": os.getenv("DB_CONNECTION_TYPE", "MYSQL") }
+                ]
                 }
             ]
 

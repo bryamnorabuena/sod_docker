@@ -72,12 +72,11 @@ engine = create_engine(DATABASE_URL,
                         echo=False,                # pon True solo si necesitas ver SQL
                         pool_pre_ping=True,        # reconecta si la conexión se cae
                         pool_recycle=1800,         # evita "MySQL server has gone away"
-                        pool_size=5,
-                        max_overflow=10,
+                        pool_size=18,
+                        max_overflow=20,
                         future=True,                        
                         connect_args={
                             "ssl": {
-                                #"ca": ".\db\DigiCertGlobalRootG2.crt.pem"
                                 "ca": "/app/certs/mysql-ca-cert"
                             }
                         }

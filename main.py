@@ -8,6 +8,10 @@ from werkzeug.exceptions import BadRequest, Unauthorized, Conflict, ServiceUnava
 from json import dumps
 from utils.environment import load_environment, get_environment
 
+from flask import Flask
+from flask_cors import CORS
+
+
 env_mode = os.getenv("APP_ENV", "local")
 load_environment(env_mode)
 
@@ -18,7 +22,12 @@ from controllers.rule import rule
 from controllers.matrixsap import matrixsap
 from controllers.process import process
 from controllers.test import test
-from jobs.conflict_job import start
+from controllers.auth import auth
+from controllers.job import job_
+from controllers.report import report
+from controllers.user import user
+from controllers.dashboard import dashboard
+from jobs.conflict_job import main
 from utils.validation import validate_input
 from utils.environment import load_environment, get_environment
 
@@ -46,6 +55,24 @@ dictConfig({
 })
 
 app = Flask(__name__)
+
+
+origins = [
+    "http://localhost:5173",
+    "https://brave-beach-0be43311e.2.azurestaticapps.net"
+]
+
+
+CORS(
+    app,
+    resources={ r"/sodService/*": { "origins": origins } },
+    supports_credentials=True,
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers="*",
+    max_age=86400
+)
+
+
 app.config['SESSION_COOKIE_NAME'] = server_environment['sessionName']
 app.config['SESSION_COOKIE_SECURE'] = True
 app.secret_key = b64decode(server_environment['secret'])
@@ -56,8 +83,11 @@ app.register_blueprint(rule, url_prefix = server_environment['appRoot'] + '/rule
 app.register_blueprint(matrixsap, url_prefix = server_environment['appRoot'] + '/matrixsap')
 app.register_blueprint(process, url_prefix = server_environment['appRoot'] + '/process')
 app.register_blueprint(test, url_prefix = server_environment['appRoot'] + '/test')
-
-app.register_blueprint(conflict2, url_prefix = server_environment['appRoot'] + '/conflict2')
+app.register_blueprint(auth, url_prefix=  server_environment['appRoot'] + "/auth")
+app.register_blueprint(job_, url_prefix=  server_environment['appRoot'] + "/job")
+app.register_blueprint(report, url_prefix=  server_environment['appRoot'] + "/report")
+app.register_blueprint(user, url_prefix=  server_environment['appRoot'] + "/user")
+app.register_blueprint(dashboard, url_prefix=  server_environment['appRoot'] + "/dashboard")
 
 CONTENT_TYPE = "application/json"
 
@@ -119,18 +149,45 @@ def handle_service_unavailable(e):
   response.content_type = CONTENT_TYPE
   return response
 
+
 @app.before_request
 def sanitize_body():
-  ignored_fields = ['token']
-  exclude_paths = ['appSecServ', 'uploadFile', 'editFile','downloadProject', 'downloadFile', 'downloadFolder', 'downloadActivity', 'downloadStage']
-  if any(path in request.path for path in exclude_paths) or request.method == 'GET':
-      return
-  data = request.json
-  for key, value in data.items():
-      if key not in ignored_fields:
-          if not validate_input(str(value)):
-              print('request invalido')
-              abort(400)
+    ignored_fields = ['token', 'Descripcion', 'FechaCorte', 'limitdate']
+    exclude_paths = ['appSecServ', 'uploadFile', 'editFile', 'downloadProject',
+                     'downloadFile', 'downloadFolder', 'downloadActivity', 'downloadStage']
+
+    # ✅ Siempre permitir OPTIONS
+    if request.method == "OPTIONS":
+        return ""
+
+    # ✅ GET nunca lleva JSON
+    if request.method == "GET":
+        return
+
+    # ✅ Rutas excluidas
+    path = request.path or ""
+    if any(p in path for p in exclude_paths):
+        return
+
+    # ✅ DELETE normalmente NO lleva body → SALTAR VALIDACIÓN
+    if request.method == "DELETE":
+        return
+
+    # ✅ Solo validar POST/PUT/PATCH
+    ct = request.headers.get("Content-Type", "").lower()
+
+    if not ct.startswith("application/json"):
+        return abort(415)
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return abort(400)
+
+    # ✅ Sanitizar campos
+    for key, value in data.items():
+        if key not in ignored_fields:
+            if not validate_input(str(value)):
+                abort(400)
 
 if __name__ == '__main__':
   port = int(os.environ.get("PORT", 8000))

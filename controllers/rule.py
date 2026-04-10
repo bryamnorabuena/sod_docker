@@ -8,12 +8,14 @@ import tempfile
 import sys
 from flask import Blueprint, request, jsonify
 from openpyxl import load_workbook
+from sqlalchemy import and_, desc
 from validator import rules
 from repository.log_repository import LogRepository
 from utils.customValidation import white_space_rule
 from db.database import SessionLocal
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from openpyxl.utils import get_column_letter
+from sqlalchemy.orm import aliased
 
 from utils import storage
 from services.nsg_service import *
@@ -22,6 +24,7 @@ from models import *
 rule = Blueprint('rule', __name__)
 
 comodin = "*"
+DATE_FMT = "%Y-%m-%d %H:%M:%S"
 
 rules_analize_conflicts = {
   'token': [rules.Required(), white_space_rule],
@@ -29,16 +32,9 @@ rules_analize_conflicts = {
 }
 @rule.route('/newrule', methods = ['POST'], )
 def import_file():
-    # nsg = update_nsg_if_needed()
-
-    # if nsg is not True:
-    #     return jsonify({
-    #         "error": f"No se pudo actualizar la regla NSG. Verifique los permisos y la configuración:{nsg}"
-    #     }), 500    
-        
     try:
         data = request.get_json(silent=True)
-    
+
         if not isinstance(data, dict):
             return jsonify({"error": "Se requiere un JSON válido"}), 400
         
@@ -46,7 +42,6 @@ def import_file():
         description = data.get("description") or ''
         file_base64 = data.get("filebase64")
         user_id = data.get("iduser")
-
 
         if not name:
             return jsonify({'error': 'Falta nombre'}), 400
@@ -59,49 +54,9 @@ def import_file():
 
         job_id = storage.create_job()
 
-        #PROVISIONAL
-        #job_id = ''
-        def run_prov():
-            MAX_ATTEMPTS = 3
-            RETRY_DELAY = 5 # segundos
-            
-            for attempt in range(1, MAX_ATTEMPTS + 1):
-                try:
-                    print(f"Iniciando intento {attempt} para job {job_id}")
-                    
-                    response = rules_process_form(job_id, name, description, file_base64, user_id)
-                    
-                    print(f"Termina llamada a función rules_process_form")
-
-                    if response:
-                        return {"status": "Success", "data": "Regla creada con éxito", "detail": ""}
-                    elif isinstance(response, list):
-                        return {"status": "Error", "data": "Regla con errores", "detail": response}
-                    else:
-                        return {"Status": "Error", "data": "Error en el proceso"}
-                        
-
-                except Exception as e:
-                    # Captura EXCEPCIONES (conexión DB, I/O, etc.)
-                    # El traceback de rules_process_form ya habrá hecho rollback y logging en el error de la sub-función
-                    
-                    if attempt < MAX_ATTEMPTS:
-                        print(f"Error TRANSITORIO en intento {attempt}. Reintentando en {RETRY_DELAY}s: {e}")
-                        # Opcional: registrar el intento de reintento
-                        time.sleep(RETRY_DELAY)
-                    else:
-                        # Último intento fallido: notificar al usuario.
-                        exc_type, exc_obj, exc_tb = sys.exc_info()
-                        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                        error_msg = f"Fallo definitivo después de {MAX_ATTEMPTS} intentos. Error: {e} en {fname}:{exc_tb.tb_lineno}"
-                        
-                        print(f"Error FINAL en job {job_id}: {e}")
-                        return {"Status": "Error", "data": f"Error FINAL en job {job_id}: {e}"}
-
-
         def run():
             MAX_ATTEMPTS = 3
-            RETRY_DELAY = 5 # segundos
+            RETRY_DELAY = 5
             
             for attempt in range(1, MAX_ATTEMPTS + 1):
                 try:
@@ -153,7 +108,7 @@ def import_file():
             "detail": f"Error at {fname}:{exc_tb.tb_lineno}: {e}",
             "data": {}
         }), 400
-
+    
 def rules_process_form(id_job, nombre, descripcion, archivo_base64, user_id):
     regla_id = None
     try:
@@ -164,7 +119,24 @@ def rules_process_form(id_job, nombre, descripcion, archivo_base64, user_id):
         descripcion = descripcion
         archivo_base64 = archivo_base64
 
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        TZ_LIMA = timezone(timedelta(hours=-5))
+        now = datetime.now(TZ_LIMA)
+
+        new_job = Job(
+            IdJob = id_job,
+            IdUsuario = user_id,
+            Nombre = nombre,
+            Tipo = "Matriz SoD (Reglas)",
+            IdAppUserCreacion = user_id,
+            IdAppUserActualizacion = user_id,
+            FechaCreacion = now,
+            FechaActualizacion = now,
+            Estado = 1
+        )
+        session.add(new_job)
+        session.flush()
+        session.commit()
+        session.expunge_all()
 
         contenido_base64 = archivo_base64.split(",")[-1]      
 
@@ -172,7 +144,7 @@ def rules_process_form(id_job, nombre, descripcion, archivo_base64, user_id):
 
         if exist_rule:
             storage.update_job_with_errors(id_job, [f"La regla con nombre '{nombre}' ya existe."])
-            return False
+            return False            
 
         storage.update_progress(id_job, 10)  
 
@@ -217,7 +189,6 @@ def rules_process_form(id_job, nombre, descripcion, archivo_base64, user_id):
         session.expunge_all()
         session.close()
 
-    
 def import_file_regla(file_base64, regla_id, user_id, session=None, id_job=None):   
     errores = []
     nivelGeneralTransaccion = {}
@@ -799,3 +770,327 @@ def import_file_regla(file_base64, regla_id, user_id, session=None, id_job=None)
     print("Regla importada exitosamente sin errores.")
     
     return True
+
+def serialize_regla(r):
+    """Serializa el modelo Regla al mismo formato esperado por tu frontend."""
+    return {
+        "id": r.Id,
+        "nombre": r.Nombre,
+        "descripcion": r.Descripcion,
+        "idAppUserCreacion": r.IdAppUserCreacion,
+        "idAppUserActualizacion": r.IdAppUserActualizacion,
+        "fechaCreacion": r.FechaCreacion.strftime(DATE_FMT) if r.FechaCreacion else None,
+        "fechaActualizacion": r.FechaActualizacion.strftime(DATE_FMT) if r.FechaActualizacion else None,
+        "estado": r.Estado
+    }
+
+def json_500(e):
+    exc_type, exc_obj, exc_tb = sys.exc_info()
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    return jsonify({
+        "status": "Error",
+        "detail": f"Error at {fname}:{exc_tb.tb_lineno}: {e}"
+    }), 500
+
+@rule.route('/update', methods=['POST','OPTIONS'])
+def update():
+    session = SessionLocal()
+
+    try:
+        data = request.get_json()
+
+        if not data or not isinstance(data, dict):
+            return jsonify({"error": "Se requiere un JSON válido"}), 400
+
+        rule_id = data.get("id")
+        nombre = data.get("nombre")
+        descripcion = data.get("descripcion", "")
+        id_user = data.get("idAppUserCreacion")
+
+        if not rule_id:
+            return jsonify({"error": "Falta id"}), 400
+        if not nombre:
+            return jsonify({"error": "Falta nombre"}), 400
+        if not id_user:
+            return jsonify({"error": "Falta Id de Usuario"}), 400
+
+        rule = session.get(Regla, rule_id)
+        if not rule:
+            return jsonify({"error": "Regla no encontrada"}), 404
+        
+        duplicate = (
+            session.query(Regla)
+            .filter(Regla.Nombre == nombre, Regla.Id != rule_id)
+            .first()
+        )
+
+        if duplicate:
+            return jsonify({"error": "Ya existe una regla con ese nombre"}), 400
+
+        TZ_LIMA = timezone(timedelta(hours=-5))
+        now_dt = datetime.now(TZ_LIMA)
+
+        # Actualizar
+        rule.Nombre = nombre
+        rule.Descripcion = descripcion
+        rule.IdAppUserActualizacion = id_user
+        rule.FechaActualizacion = now_dt
+
+        session.commit()
+
+        return jsonify({"status": "success", "data": {"id": rule_id}}), 200
+
+    except Exception as e:
+        session.rollback()
+
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+
+        return jsonify({
+            "status": "Error",
+            "detail": f"Error at {fname}:{exc_tb.tb_lineno}: {e}"
+        }), 500
+
+    finally:
+        session.close()
+
+@rule.route('/all', methods=['GET'])
+def get_all():
+    session = SessionLocal()
+
+    try:
+        reglas = session.query(Regla).order_by(desc(Regla.FechaActualizacion)).all()
+
+        # Serialización al formato deseado
+        data = []
+        for r in reglas:
+            data.append({
+                "id": r.Id,
+                "nombre": r.Nombre,
+                "descripcion": r.Descripcion,
+                "idAppUserCreacion": r.IdAppUserCreacion,
+                "idAppUserActualizacion": r.IdAppUserActualizacion,
+                "fechaCreacion": r.FechaCreacion.strftime("%Y-%m-%d %H:%M:%S") if r.FechaCreacion else None,
+                "fechaActualizacion": r.FechaActualizacion.strftime("%Y-%m-%d %H:%M:%S") if r.FechaActualizacion else None,
+                "estado": r.Estado
+            })
+
+        return jsonify(data), 200
+
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+
+        return jsonify({
+            "status": "Error",
+            "detail": f"Error at {fname}:{exc_tb.tb_lineno}: {e}"
+        }), 500
+
+    finally:
+        session.close()
+
+@rule.route('/<int:regla_id>', methods=['GET'])
+def get_by_id(regla_id):
+    session = SessionLocal()
+    try:
+        regla = session.get(Regla, regla_id)
+        if not regla:
+            return jsonify({"error": "Regla no encontrada"}), 404
+        return jsonify(serialize_regla(regla)), 200
+    except Exception as e:
+        session.rollback()
+        return json_500(e)
+    finally:
+        session.close()
+
+@rule.route('/delete', methods=['POST'])
+def delete_one():
+    session = SessionLocal()
+    try:
+        data = request.get_json() or {}
+        regla_id = data.get("id")
+        if not regla_id:
+            return jsonify({"error": "Falta id"}), 400
+
+        regla = session.get(Regla, regla_id)
+        if not regla:
+            return jsonify({"error": "Regla no encontrada"}), 404
+
+        regla.Estado = 0
+        session.commit()
+        return jsonify({"status": "success", "deletedId": regla_id}), 200
+
+    except Exception as e:
+        session.rollback()
+        return json_500(e)
+    finally:
+        session.close()
+
+@rule.route('/<int:regla_id>', methods=['DELETE'])
+def delete_one_rest(regla_id):
+    session = SessionLocal()
+    try:
+        regla = session.get(Regla, regla_id)
+        if not regla:
+            return jsonify({"error": "Regla no encontrada"}), 404
+        regla.Estado = 0
+        session.commit()
+        return jsonify({"status": "success", "deletedId": regla_id}), 200
+    except Exception as e:
+        session.rollback()
+        return json_500(e)
+    finally:
+        session.close()
+
+@rule.route('/delete-multiple', methods=['POST'])
+def delete_multiple():
+    session = SessionLocal()
+    try:
+        data = request.get_json() or []
+        if not isinstance(data, list) or not all(isinstance(x, int) for x in data):
+            return jsonify({"error": "Se requiere lista de enteros (ids)"}), 400
+
+        if not data:
+            return jsonify({"error": "Lista de ids vacía"}), 400
+
+        # Soft-delete
+        updated = (
+            session.query(Regla)
+            .filter(Regla.Id.in_(data))
+            .update({Regla.Estado: 0}, synchronize_session=False)
+        )
+        session.commit()
+        return jsonify({"status": "success", "updated": updated}), 200
+
+    except Exception as e:
+        session.rollback()
+        return json_500(e)
+    finally:
+        session.close()
+
+@rule.route('/details/<int:regla_id>', methods=['GET'])
+def get_details_by_id(regla_id):
+    session = SessionLocal()
+    try:
+        # 1) Regla base
+        regla = session.get(Regla, regla_id)
+        if not regla:
+            return jsonify({"error": "Regla no encontrada"}), 404
+
+        # ---------- 2) SOD ----------
+        # Aliases (equivalentes a canr, capr, ac, etc.)
+        RIAT = RiesgoActividadTransaccion
+        RI = Riesgo
+        CANR = aliased(Campo)  # nivel riesgo
+        CAPR = aliased(Campo)  # proceso riesgo
+        AC = Actividad
+
+        sod_rows = (
+            session.query(
+                RI.Id.label("ri_id"),
+                RI.Codigo.label("ri_codigo"),
+                RI.Descripcion.label("ri_descripcion"),
+                RIAT.IdActividad.label("riat_idactividad"),
+                AC.Codigo.label("ac_codigo"),
+                AC.Descripcion.label("ac_descripcion"),
+                CANR.Nombre.label("canr_nombre"),
+                CAPR.Nombre.label("capr_nombre"),
+                RIAT.Id.label("riat_id")  # para ordenar como en tu LINQ (orderby riat.Id)
+            )
+            .join(RI, RIAT.IdRiesgo == RI.Id)
+            .join(CANR, RI.IdNivelRiesgo == CANR.Id)
+            .join(CAPR, RI.IdProcesoRiesgo == CAPR.Id)
+            .join(AC, RIAT.IdActividad == AC.Id)
+            .filter(RI.IdRegla == regla.Id)
+            .order_by(RIAT.Id.asc())
+            .all()
+        )
+
+        # Agrupar por (IdRiesgo, IdActividad) y tomar el primero (equivalente a g.First())
+        seen = set()
+        data_sod = []
+        for row in sod_rows:
+            key = (row.ri_id, row.riat_idactividad)
+            if key in seen:
+                continue
+            seen.add(key)
+            data_sod.append({
+                "id": row.ri_id,
+                "codigo": row.ri_codigo,
+                "descripcion": row.ri_descripcion,
+                "idActividad": row.riat_idactividad,
+                "codigoActividad": row.ac_codigo,
+                "descripcionActividad": row.ac_descripcion,
+                "nombreNivelRiesgo": row.canr_nombre,
+                "nombreProcesoRiesgo": row.capr_nombre
+            })
+
+        # ---------- 3) FUNCIONES ----------
+        AT = ActividadTransaccion
+        T = Transaccion
+        CAAC = Campo  # sistema de actividad
+
+        funciones_rows = (
+            session.query(
+                AC.Codigo.label("ac_codigo"),
+                AC.Descripcion.label("ac_descripcion"),
+                CAAC.Nombre.label("sistema_nombre"),
+                T.Codigo.label("t_codigo"),
+                T.Nombre.label("t_nombre")
+            )
+            .select_from(AT)
+            .join(AC, AT.IdActividad == AC.Id)
+            .join(CAAC, AC.IdSistema == CAAC.Id)
+            .join(T, AT.IdTransaccion == T.Id)
+            .filter(AC.IdRegla == regla.Id)
+            .order_by(AT.Id.asc())
+            .all()
+        )
+
+        data_funciones = [{
+            "codigoActividad": r.ac_codigo,
+            "descripcionActividad": r.ac_descripcion,
+            "nombreSistema": r.sistema_nombre,
+            "codigoTransaccion": r.t_codigo,
+            "nombreTransaccion": r.t_nombre
+        } for r in funciones_rows]
+
+        # ---------- 4) OPCIONES ----------
+        CAS = Campo  # sistema de transacción
+
+        opciones_rows = (
+            session.query(
+                T.Id.label("t_id"),
+                T.Codigo.label("t_codigo"),
+                CAS.Nombre.label("sistema_nombre")
+            )
+            .join(CAS, T.IdSistema == CAS.Id)
+            .filter(and_(T.IdRegla == regla.Id, T.Codigo != ""))
+            .order_by(CAS.Nombre.asc(), T.Codigo.asc())
+            .all()
+        )
+
+        data_opciones = [{
+            "id": r.t_id,
+            "codigo": r.t_codigo,
+            "nombre": r.t_codigo,  # igual que tu DTO
+            "nombreSistema": r.sistema_nombre
+        } for r in opciones_rows]
+
+        # ---------- 5) Respuesta final ----------
+        result = {
+            "regla": serialize_regla(regla),
+            "sod": data_sod,
+            "funciones": data_funciones,
+            "opciones": data_opciones
+        }
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        session.rollback()
+        return json_500(e)
+    finally:
+        session.close()
+
+

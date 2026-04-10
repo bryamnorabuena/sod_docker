@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 COPY . /app
@@ -7,7 +7,8 @@ COPY . /app
 RUN pip install --no-cache-dir -r requirements.txt
 
 # # Asegurar carpeta para el CA del MySQL (si usas secret volume)
-# RUN mkdir -p /app/certs
+RUN mkdir -p /app/certs
+RUN cp /app/db/DigiCertGlobalRootG2.crt.pem /app/certs/mysql-ca-cert
 
 # Ejecutamos SOLO el job runner
 ENTRYPOINT ["python", "jobs/matrixsap_job.py"]

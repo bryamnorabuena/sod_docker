@@ -1,7 +1,7 @@
 import json
 import sys
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import zipfile
 import base64
 import time
@@ -9,7 +9,7 @@ import os
 import time
 
 from flask import Blueprint, request, jsonify
-from sqlalchemy import and_, desc, exc, select, insert
+from sqlalchemy import and_, desc, exc, func, literal, select, insert
 from io import BytesIO
 from db.database import SessionLocal
 from models import *
@@ -28,6 +28,8 @@ comodin = '*'
 
 @matrixsap.route('/new', methods=['POST'])
 def new():
+    session = SessionLocal()
+
     try: 
         body = request.get_json(silent=True)
         name = body.get("name")
@@ -55,7 +57,24 @@ def new():
             "zip_url": zip_url,
             "iduser": user_id
         }
-        print(input_json)
+
+        TZ_LIMA = timezone(timedelta(hours=-5))
+        now = datetime.now(TZ_LIMA)
+
+        new_job = Job(
+            IdJob = job_id,
+            IdUsuario = user_id,
+            Nombre = name,
+            Tipo = "Tablas SAP",
+            IdAppUserCreacion = user_id,
+            IdAppUserActualizacion = user_id,
+            FechaCreacion = now,
+            FechaActualizacion = now,
+            Estado = 1
+        )
+        session.add(new_job)
+        session.commit()
+        session.expunge_all()
 
         # 3) Autenticación a ARM con Managed Identity
         cred  = DefaultAzureCredential()
@@ -69,15 +88,15 @@ def new():
         url = (f"{ARM_BASE}/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
                f"/providers/Microsoft.App/jobs/{job_name}/start?api-version=2025-07-01")
 
-        # Enviamos INPUT_JSON como env var (tu runner la lee con os.getenv('INPUT_JSON'))
         body_start = {            
             
             "containers": [
                 {
                 "name": "runner",
-                "image": "sodregistryconflicts1.azurecr.io/aca-mastersap:latest",
+                "image": "crsodqa.azurecr.io/aca-mastersap:latest",
                 "env": [
-                    { "name": "APP_ENV", "value": "production" },
+                    { "name": "APP_ENV", "value": "production" },      
+                    { "name": "PATH_PEM", "value": "/app/certs/mysql-ca-cert" },              
                     { "name": "INPUT_JSON", "value": json.dumps(input_json) },
                     { "name": "DB_CONNECTION", "secretRef": "db-connection-secret"},
                     { "name": "AZUREWEBJOBSTORAGE", "secretRef": "storage-connection-secret"},
@@ -107,61 +126,19 @@ def new():
 
         azure_execution_id = None
         if resp.status_code == 200:
-            azure_execution_id = resp.json().get("name")  # execution name de Azure
-            # (La doc del endpoint START describe que retorna el nombre/ID de la ejecución si está listo) [1](https://oneuptime.com/blog/post/2026-02-16-how-to-deploy-a-microservice-to-azure-container-apps-with-custom-scaling-rules/view)
-        # Si es 202 Accepted, a veces solo hay Location para polling; puedes devolver azureExecutionId=None
-        # y resolverlo más tarde, pero con 200 ya tienes el nombre.
+            azure_execution_id = resp.json().get("name")
 
-        # 6) Respuesta al cliente con ambos identificadores
         return jsonify({
             "jobId": job_id,                   # tu ID de tracking para el progreso
-            "azureExecutionId": azure_execution_id  # el execution name del Job en Azure
+            "azureExecutionId": [azure_execution_id]  # el execution name del Job en Azure
         }), 202
-
-
-
-
-
-        def run():
-            MAX_ATTEMPTS = 3
-
-            for attempt in range(1, MAX_ATTEMPTS + 1):
-                try:
-                    print(f"Iniciando intento {attempt} para job {job_id}")
-                    storage.update_progress(job_id, 10)
-                    
-                    response = set_sod_matrix(job_id, name, description, file_base64, user_id)                    
-                    
-                    print(f"Termina llamada a función set_sod_matrix")
-
-                    if response:
-                        storage.complete_job(job_id)
-                        return
-                    elif isinstance(response, list):
-                        storage.update_job_with_errors(job_id, response)                                                
-                    else:
-                        storage.fail_job(job_id)
-                        return                        
-                except Exception as e:
-                    exc_type, exc_obj, exc_tb = sys.exc_info()
-                    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-
-                    error_msg = f"Error para job {job_id}: {e} en {fname}:{exc_tb.tb_lineno}"
-
-                    storage.update_job_with_errors(job_id, [error_msg])
-                    storage.fail_job(job_id)
-                    print(f"Error en job {job_id}: {e}")
-                    return
-                    
-        threading.Thread(target=run).start()
-
-        return jsonify({"jobId": job_id}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     except exc.SQLAlchemyError as e:
         return jsonify({"error": f"SQLALCHEMY:{e}"}), 500
-
+    finally:
+        session.close()
 
 #BRNC ORIGINAL
 def set_sod_matrix(job_id, name, description, file_base64, current_user):
@@ -176,7 +153,24 @@ def set_sod_matrix(job_id, name, description, file_base64, current_user):
                 BATCH_USUARIOPERFIL = []
                 LIMIT_BATCH_USUARIOPERFIL = 5000
                 time_start = time.perf_counter() 
-                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')                
+
+                TZ_LIMA = timezone(timedelta(hours=-5))
+                now = datetime.now(TZ_LIMA)    
+
+                new_job = Job(
+                    IdJob = job_id,
+                    IdUsuario = current_user,
+                    Nombre = name,
+                    Tipo = "Tablas SAP",
+                    IdAppUserCreacion = current_user,
+                    IdAppUserActualizacion = current_user,
+                    FechaCreacion = now,
+                    FechaActualizacion = now,
+                    Estado = 1
+                )
+                session.add(new_job)
+                session.commit()
+                session.expunge_all()          
 
                 matrizsap = MatrizSap()
                 matrizsap.Nombre = name
@@ -1335,3 +1329,199 @@ def process_ROL(session: Session, zip_path: str, matriz_id: int, app_user_id: in
     if rows:
         session.execute(insert(SapRolCatalogo.__table__).values(rows))
         session.flush(); rows.clear()
+
+
+DATE_FMT = "%Y-%m-%d %H:%M:%S"
+
+def json_500(e):
+    exc_type, exc_obj, exc_tb = sys.exc_info()
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    return jsonify({
+        "status": "Error",
+        "detail": f"Error at {fname}:{exc_tb.tb_lineno}: {e}"
+    }), 500
+
+def serialize_matrizsap(ms):
+    """Replica tu MatrizSapResponse del C#."""
+    estado_texto = "Procesado" if (ms.Procesado == 1 or ms.Procesado is True) else "Pendiente"
+    return {
+        "id": ms.Id,
+        "nombre": ms.Nombre,
+        "descripcion": ms.Descripcion,
+        "fecha_Creacion": ms.FechaCreacion.strftime(DATE_FMT) if ms.FechaCreacion else None,
+        "fecha_Actualizacion": ms.FechaActualizacion.strftime(DATE_FMT) if ms.FechaActualizacion else None,
+        "estado": True if (ms.Estado == 1 or ms.Estado is True) else False,
+        "activo": True if (ms.Estado == 1 or ms.Estado is True) else False
+    }
+
+
+
+@matrixsap.route('/all', methods=['GET'])
+def get_all():
+    session = SessionLocal()
+    try:
+        rows = (
+            session.query(MatrizSap)
+            .filter(MatrizSap.Estado == 1)
+            .order_by(MatrizSap.FechaActualizacion.desc())
+            .all()
+        )
+        result = [serialize_matrizsap(ms) for ms in rows]
+        return jsonify(result), 200
+    except Exception as e:
+        session.rollback()
+        return json_500(e)
+    finally:
+        session.close()
+
+
+# ==============
+# GET /matrizsap/<id>  (FindById)
+# ==============
+@matrixsap.route('/<int:ms_id>', methods=['GET'])
+def find_by_id(ms_id):
+    session = SessionLocal()
+    try:
+        ms = session.get(MatrizSap, ms_id)
+        if not ms:
+            return jsonify({"error": "MatrizSap no encontrada"}), 404
+        return jsonify(serialize_matrizsap(ms)), 200
+    except Exception as e:
+        session.rollback()
+        return json_500(e)
+    finally:
+        session.close()
+
+
+# ==============
+# GET /matrizsap/details/<id>
+# (Replica tu LINQ: join UT+U+T+Campo, filtro ut.IdProceso == id)
+# ==============
+@matrixsap.route('/details/<int:proc_id>', methods=['GET'])
+def details(proc_id):
+    session = SessionLocal()
+    try:
+        matrizsap = session.get(MatrizSap, proc_id)
+        if matrizsap is None:
+            return jsonify({"error": "MatrizSap no encontrada"}), 404
+        
+        UT = UsuarioTransaccion
+        U  = Usuario
+        T  = Transaccion
+        C  = Campo
+
+        rows = (
+            session.query(
+                U.Usuario.label("usuario"),
+                func.concat(U.Nombre, literal(" "), U.Apellidos).label("nombres"),
+                U.Email.label("email"),
+                T.Codigo.label("codigo"),
+                C.Nombre.label("sistema"),
+                T.Codigo.label("opciones")
+            )
+            .select_from(UT)
+            .join(U,  UT.IdUsuario == U.Id)
+            .join(T,  UT.IdTransaccion == T.Id)
+            .join(C,  T.IdSistema == C.Id)
+            .filter(UT.IdProceso == proc_id)
+            .order_by(UT.Id.asc())
+            .all()
+        )
+
+        result = [{
+            "Usuario": r.usuario,
+            "Nombres": r.nombres,
+            "Email": r.email,
+            "Codigo": r.codigo,
+            "Sistema": r.sistema,
+            "Opciones": r.opciones
+        } for r in rows]
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        session.rollback()
+        return json_500(e)
+    finally:
+        session.close()
+
+
+# ==============
+# POST /matrizsap/edit  (Update parcial)
+# Admite body con campos a actualizar; setea FechaActualizacion (Lima)
+# ==============
+@matrixsap.route('/edit', methods=['POST'])
+def edit():
+    session = SessionLocal()
+    try:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"error": "Se requiere JSON válido"}), 400
+
+        ms_id = data.get("id")
+        if not ms_id:
+            return jsonify({"error": "Falta id"}), 400
+
+        ms = session.get(MatrizSap, ms_id)
+        if not ms:
+            return jsonify({"error": "MatrizSap no encontrada"}), 404
+
+        # (Opcional) Validación de duplicidad de nombre
+        if "nombre" in data and data["nombre"]:
+            dup = (
+                session.query(MatrizSap)
+                .filter(MatrizSap.Nombre == data["nombre"], MatrizSap.Id != ms_id)
+                .first()
+            )
+            if dup:
+                return jsonify({"error": "Ya existe una MatrizSap con ese nombre"}), 400
+
+        # Asignaciones parciales si vienen en el body
+        if "nombre" in data:        ms.Nombre = data["nombre"]
+        if "descripcion" in data:   ms.Descripcion = data["descripcion"]
+        if "procesado" in data:     ms.Procesado = data["procesado"]
+        if "cantidad" in data:      ms.Cantidad = data["cantidad"]
+        if "tiempo" in data:        ms.Tiempo = data["tiempo"]
+        if "estado" in data:        ms.Estado = data["estado"]
+
+        # Fecha de actualización (zona Lima)
+        ms.FechaActualizacion = datetime.now(timezone(timedelta(hours=-5)))
+
+        session.commit()
+        return jsonify({"status": "success", "id": ms_id}), 200
+
+    except Exception as e:
+        session.rollback()
+        return json_500(e)
+    finally:
+        session.close()
+
+
+# ==============
+# POST /matrizsap/delete-multiple  (Hard delete)
+# ==============
+@matrixsap.route('/delete-multiple', methods=['POST'])
+def delete_multiple():
+    session = SessionLocal()
+    try:
+        ids = request.get_json(silent=True)
+        if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
+            return jsonify({"error": "Se requiere lista de enteros (ids)"}), 400
+        if not ids:
+            return jsonify({"error": "Lista de ids vacía"}), 400
+
+        objetos = session.query(MatrizSap).filter(MatrizSap.Id.in_(ids)).all()
+        if not objetos:
+            return jsonify({"error": "No se encontraron registros con esos ids"}), 404
+
+        for o in objetos:
+            session.delete(o)   # HARD DELETE
+        session.commit()
+
+        return jsonify({"status": "success", "deletedCount": len(objetos)}), 200
+
+    except Exception as e:
+        session.rollback()
+        return json_500(e)
+    finally:
+        session.close()

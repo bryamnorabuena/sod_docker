@@ -12,6 +12,7 @@ class Proceso(Base):
     IdMatrizSap = Column(Integer, nullable=False)
     Nombre = Column(String(64), nullable=False)
     Descripcion = Column(String(128))
+    FechaCorte = Column(DateTime, nullable=True)
     Procesado = Column(Integer, nullable=False, default=0)
     Tiempo = Column(Float, nullable=False, default=0)
     Cantidad = Column(Integer, nullable=False, default=0)

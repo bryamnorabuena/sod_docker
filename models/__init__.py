@@ -42,3 +42,5 @@ from .job import Job
 from .conflicto import Conflicto
 from .rendimiento import Rendimiento
 from .matrizsap import MatrizSap
+from .appuserrol import AppUserRol
+from .rol import Rol

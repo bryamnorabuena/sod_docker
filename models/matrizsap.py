@@ -10,6 +10,7 @@ class MatrizSap(Base):
     Id = Column('Id', Integer, primary_key=True, autoincrement=True)
     Nombre = Column(String(64), nullable=False)
     Descripcion = Column(String(128))
+    Procesado = Column(Integer, nullable=False, default=0)
     Tiempo = Column(Float, nullable=False)
     IdAppUserCreacion = Column(Integer, nullable=False)
     IdAppUserActualizacion = Column(Integer, nullable=True)

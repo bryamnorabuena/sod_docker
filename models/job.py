@@ -11,6 +11,8 @@ class Job(Base):
     IdJob = Column(Integer, nullable=False)
     IdUsuario = Column(Integer, nullable=False)
     Nombre = Column(String(50), nullable=False)
+    Tipo = Column(String(50), nullable=True)
+    UrlReporte = Column(String, nullable=True)
     IdAppUserCreacion = Column(Integer, nullable=False)
     IdAppUserActualizacion = Column(Integer, nullable=True)
     FechaCreacion = Column(DateTime, default=datetime.utcnow, nullable=False)

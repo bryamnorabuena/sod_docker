@@ -5,14 +5,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# dependencias python
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY . /app
 
-# copia fuente
-COPY . .
+# dependencias python
+COPY requirements.txt /app/requirements.txt
+
+# (opcional) Actualiza pip/setuptools/wheel para evitar issues de build
+RUN python -m pip install --upgrade pip setuptools wheel \
+ && pip install -r /app/requirements.txt
+
+
+# # Asegurar carpeta para el CA del MySQL (si usas secret volume)
+RUN mkdir -p /app/certs
+RUN cp /app/db/DigiCertGlobalRootG2.crt.pem /app/certs/mysql-ca-cert
 
 EXPOSE 8000
 
-# ⚠️ 1 worker para no matar XAMPP MySQL
 CMD ["gunicorn", "-w", "1", "-k", "gthread", "--timeout", "0", "--graceful-timeout", "0", "--keep-alive", "120", "-b", "0.0.0.0:8000", "main:app"]

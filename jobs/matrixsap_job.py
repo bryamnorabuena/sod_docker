@@ -551,6 +551,7 @@ def process_USR02(session: Session, zip_path: str, matriz_id: int, id_empresa: i
                             else:
                                 fecha_inicio = config.MIN_DATE_PHP
                                 fecha_inicio = now
+                                fecha_inicio = None
                             if parts[5].strip() != "":
                                 # d.m.Y + 23:59:59 -> YYYY-MM-DD (puedes mantener sólo fecha para emular PHP)
                                 fecha_fin = datetime.strptime(parts[5].strip() + " 23:59:59", "%d.%m.%Y %H:%M:%S")                            

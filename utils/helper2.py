@@ -1,412 +1,334 @@
 from datetime import datetime
 import re
 
-class Helper:
-    @staticmethod
-    def bol_campo_find(desde, hasta, desde_perfil, hasta_perfil, comodin):
-        bol_campo = False
-        ingreso = 0
-        
-        # Normalización más parecida a empty() de PHP
-        if Helper.php_empty(desde):
-            desde = ""
-        if Helper.php_empty(desde_perfil):
-            desde_perfil = ""
-        if Helper.php_empty(hasta):
-            hasta = ""
-        if Helper.php_empty(hasta_perfil):
-            hasta_perfil = ""
 
-        # Condición 1 (comodines o igualdad exacta)
-        if desde == comodin or desde_perfil == comodin or desde == desde_perfil:
-            bol_campo = True
-            ingreso = 1
-        
-        # Condición 2 (rango especial 0*-9*)
-        elif (desde_perfil == "0*" and hasta_perfil == "9*"):
-            bol_campo = True
-            ingreso = 2
-        
-        # Condición 3 (igualdad exacta)
-        elif desde == desde_perfil:
-            bol_campo = True
-            ingreso = 3
-        
-        elif Helper.is_numeric(desde):  # Grupo 1 - Números
+class Helper2:
+    # --- Patrones precompilados (mismos patrones literales que tu código actual) ---
+    _RE_NUMERIC = re.compile(r'\[+\\-\]?\\d+(\.\\d+)?(\[eE\]\[+\\-\]?\\d+)?')
+    _RE_ONLY_DIGITS = re.compile(r'[^0-9]+')
+    _RE_ONLY_LETTERS = re.compile(r'[^A-Za-z]+')
+
+    @staticmethod
+    def php_empty(x) -> bool:
+        # Igual semántica que la actual
+        return x is None or x is False or x == '' or x == 0 or x == '0'
+
+    @staticmethod
+    def _to_php_str(x) -> str:
+        # Igual semántica que la actual
+        return '' if Helper2.php_empty(x) else str(x)
+
+    @staticmethod
+    def is_numeric_php(x) -> bool:
+        # Mantiene el patrón literal original (aunque esté "sobre-escapeado")
+        if isinstance(x, (int, float)):
+            return True
+        s = str(x).strip()
+        if s == '':
+            return False
+        return bool(Helper2._RE_NUMERIC.fullmatch(s))
+
+    @staticmethod
+    def php_int(x) -> int:
+        # Respeta la secuencia actual: primero is_numeric_php, luego cast vía float->int
+        if Helper2.is_numeric_php(x):
             try:
-                desde = int(desde)
-                desde_perfil = int(desde_perfil) if Helper.is_numeric(desde_perfil) else desde_perfil
-                hasta = int(hasta) if Helper.is_numeric(hasta) else hasta
-                hasta_perfil = int(hasta_perfil) if Helper.is_numeric(hasta_perfil) else hasta_perfil
-
-                # Caso 4 (valor exacto)
-                if (Helper.is_numeric(desde_perfil) and
-                    desde == desde_perfil and
-                    hasta == "" and
-                    desde_perfil != "" and
-                    hasta_perfil == ""):
-                    bol_campo = True
-                    ingreso = 4
-
-                # Caso 5 (dentro de rango)
-                elif (Helper.is_numeric(desde_perfil) and
-                    Helper.is_numeric(hasta_perfil) and
-                    hasta == "" and
-                    desde_perfil != "" and
-                    hasta_perfil != "" and
-                    desde >= desde_perfil and desde <= hasta_perfil):
-                    bol_campo = True
-                    ingreso = 5
-
-                # Caso 6 (rango inverso)
-                elif (Helper.is_numeric(desde_perfil) and
-                    hasta != "" and
-                    Helper.is_numeric(hasta) and
-                    desde_perfil != "" and
-                    hasta_perfil == "" and
-                    desde_perfil >= desde and desde_perfil <= hasta):
-                    bol_campo = True
-                    ingreso = 6
-
-                # Caso 7 (superposición de rangos)
-                elif (Helper.is_numeric(desde_perfil) and
-                    Helper.is_numeric(hasta_perfil) and
-                    hasta != "" and
-                    Helper.is_numeric(hasta) and
-                    desde_perfil != "" and
-                    hasta_perfil != "" and
-                    hasta >= hasta_perfil and
-                    desde <= hasta_perfil):
-                    bol_campo = True
-                    ingreso = 7
-                    
-            except Exception as e:
-                print(f"Error en conversión numérica: {e}")
-                pass
-        elif (desde == desde_perfil 
-            and Helper.empty_comodin(desde, comodin) 
-            and (hasta == "" or hasta is None) 
-            and Helper.empty_comodin(desde_perfil, comodin) 
-            and (hasta_perfil == "" or hasta_perfil is None)):
-            bol_campo = True
-            ingreso = 8
-
-        elif (desde >= desde_perfil and desde <= hasta_perfil 
-            and Helper.empty_comodin(desde, comodin) 
-            and (hasta == "" or hasta is None) 
-            and Helper.empty_comodin(desde_perfil, comodin) 
-            and Helper.empty_comodin(hasta_perfil, comodin)):
-            bol_campo = True
-            ingreso = 9
-
-        elif (desde_perfil >= desde and desde_perfil <= hasta 
-            and Helper.empty_comodin(desde, comodin) 
-            and Helper.empty_comodin(hasta, comodin) 
-            and Helper.empty_comodin(desde_perfil, comodin) 
-            and (hasta_perfil == "" or hasta_perfil is None)):
-            bol_campo = True
-            ingreso = 10
-
-        elif (hasta >= hasta_perfil and desde <= hasta_perfil 
-            and Helper.empty_comodin(desde, comodin) 
-            and Helper.empty_comodin(hasta, comodin) 
-            and Helper.empty_comodin(desde_perfil, comodin) 
-            and Helper.empty_comodin(hasta_perfil, comodin)):
-            bol_campo = True
-            ingreso = 11
-
-        elif (Helper.begin_start(desde, desde_perfil, comodin) 
-            and not Helper.empty_comodin(desde, comodin) 
-            and (hasta == "" or hasta is None) 
-            and Helper.empty_comodin(desde_perfil, comodin) 
-            and (hasta_perfil == "" or hasta_perfil is None)):
-            bol_campo = True
-            ingreso = 12
-
-        elif ((Helper.begin_start(desde, desde_perfil, comodin) 
-            or Helper.begin_start(desde, hasta_perfil, comodin)) 
-            and not Helper.empty_comodin(desde, comodin) 
-            and (hasta == "" or hasta is None) 
-            and Helper.empty_comodin(desde_perfil, comodin) 
-            and Helper.empty_comodin(hasta_perfil, comodin)):
-            bol_campo = True
-            ingreso = 13
-
-        elif ((Helper.begin_start(desde, desde_perfil, comodin) 
-            or Helper.begin_start(hasta, desde_perfil, comodin)) 
-            and not Helper.empty_comodin(desde, comodin) 
-            and not Helper.empty_comodin(hasta, comodin) 
-            and Helper.empty_comodin(desde_perfil, comodin) 
-            and (hasta_perfil == "" or hasta_perfil is None)):
-            bol_campo = True
-            ingreso = 14
-
-        elif ((Helper.begin_start(desde, desde_perfil, comodin) 
-            or Helper.begin_start(hasta, desde_perfil, comodin) 
-            or Helper.begin_start(desde, hasta_perfil, comodin) 
-            or Helper.begin_start(hasta, hasta_perfil, comodin)) 
-            and not Helper.empty_comodin(desde, comodin) 
-            and not Helper.empty_comodin(hasta, comodin) 
-            and Helper.empty_comodin(desde_perfil, comodin) 
-            and Helper.empty_comodin(hasta_perfil, comodin)):
-            bol_campo = True
-            ingreso = 15
-
-        elif (Helper.begin_start(desde_perfil, desde, comodin) 
-            and Helper.empty_comodin(desde, comodin) 
-            and (hasta == "" or hasta is None) 
-            and not Helper.empty_comodin(desde_perfil, comodin) 
-            and (hasta_perfil == "" or hasta_perfil is None)):
-            bol_campo = True
-            ingreso = 16
-
-        elif ((Helper.begin_start(desde_perfil, desde, comodin) 
-            or Helper.begin_start(hasta_perfil, desde, comodin)) 
-            and Helper.empty_comodin(desde, comodin) 
-            and (hasta == "" or hasta is None) 
-            and not Helper.empty_comodin(desde_perfil, comodin) 
-            and (hasta_perfil == "" or hasta_perfil is None)):
-            bol_campo = True
-            ingreso = 17
-
-        elif ((Helper.begin_start(desde_perfil, desde, comodin) 
-            or Helper.begin_start(desde_perfil, hasta, comodin)) 
-            and Helper.empty_comodin(desde, comodin) 
-            and Helper.empty_comodin(hasta, comodin) 
-            and not Helper.empty_comodin(desde_perfil, comodin) 
-            and (hasta_perfil == "" or hasta_perfil is None)):
-            bol_campo = True
-            ingreso = 18
-
-        elif ((Helper.begin_start(desde_perfil, desde, comodin) 
-            or Helper.begin_start(desde_perfil, hasta, comodin) 
-            or Helper.begin_start(hasta_perfil, desde, comodin) 
-            or Helper.begin_start(hasta_perfil, hasta, comodin)) 
-            and Helper.empty_comodin(desde, comodin) 
-            and Helper.empty_comodin(hasta, comodin) 
-            and not Helper.empty_comodin(desde_perfil, comodin) 
-            and not Helper.empty_comodin(hasta_perfil, comodin)):
-            bol_campo = True
-            ingreso = 19
-
-        elif (Helper.begin_all_start(desde, desde_perfil, comodin) 
-            and not Helper.empty_comodin(desde, comodin) 
-            and (hasta == "" or hasta is None) 
-            and not Helper.empty_comodin(desde_perfil, comodin) 
-            and (hasta_perfil == "" or hasta_perfil is None)):
-            bol_campo = True
-            ingreso = 20
-
-        elif (Helper.begin_all_start(desde, desde_perfil, comodin) 
-            and not Helper.empty_comodin(desde, comodin) 
-            and (hasta == "" or hasta is None) 
-            and Helper.empty_comodin(desde_perfil, comodin) 
-            and (hasta_perfil == "" or hasta_perfil is None)):
-            bol_campo = True
-            ingreso = 21
-
-        elif (Helper.begin_all_start(desde, desde_perfil, comodin) 
-            and Helper.empty_comodin(desde, comodin) 
-            and (hasta == "" or hasta is None) 
-            and not Helper.empty_comodin(desde_perfil, comodin) 
-            and (hasta_perfil == "" or hasta_perfil is None)):
-            bol_campo = True
-            ingreso = 22
-
-        elif ((Helper.begin_all_start(desde, desde_perfil, comodin) 
-            or Helper.begin_all_start(desde, hasta_perfil, comodin)) 
-            and not Helper.empty_comodin(desde, comodin) 
-            and (hasta == "" or hasta is None) 
-            and not Helper.empty_comodin(desde_perfil, comodin) 
-            and not Helper.empty_comodin(hasta_perfil, comodin)):
-            bol_campo = True
-            ingreso = 23
-
-        elif ((Helper.begin_all_start(desde, desde_perfil, comodin) 
-            or Helper.begin_all_start(hasta, desde_perfil, comodin)) 
-            and not Helper.empty_comodin(desde, comodin) 
-            and not Helper.empty_comodin(hasta, comodin) 
-            and not Helper.empty_comodin(desde_perfil, comodin) 
-            and (hasta_perfil == "" or hasta_perfil is None)):
-            bol_campo = True
-            ingreso = 24
-
-        elif ((Helper.begin_all_start(desde, desde_perfil, comodin) 
-            or Helper.begin_all_start(desde, hasta_perfil, comodin) 
-            or Helper.begin_all_start(hasta, desde_perfil, comodin) 
-            or Helper.begin_all_start(hasta, hasta_perfil, comodin)) 
-            and not Helper.empty_comodin(desde, comodin) 
-            and not Helper.empty_comodin(hasta, comodin) 
-            and not Helper.empty_comodin(desde_perfil, comodin) 
-            and not Helper.empty_comodin(hasta_perfil, comodin)):
-            bol_campo = True
-            ingreso = 25
-
-        return bol_campo
+                return int(float(str(x)))
+            except Exception:
+                return 0
+        return 0
 
     @staticmethod
-    def begin_all_start(desde, hasta, comodin):
-        # str_replace($comodin, "", $desde/$hasta)
-        str_desde = str(desde).replace(comodin, "") if desde is not None else ""
-        str_hasta = str(hasta).replace(comodin, "") if hasta is not None else ""
-
-        # strpos === 0 en PHP <=> .startswith en Python
-        return ((str_hasta != "" and str_desde.startswith(str_hasta)) or
-                (str_desde != "" and str_hasta.startswith(str_desde)))
+    def only_digits(s: str) -> str:
+        return Helper2._RE_ONLY_DIGITS.sub('', s or '')
 
     @staticmethod
-    def begin_start(desde, hasta, comodin):
-        # str_replace($comodin, "", $desde)
-        str_desde = str(desde).replace(comodin, "") if desde is not None else ""
-        str_hasta = str(hasta) if hasta is not None else ""
-
-        # strpos === 0 en PHP
-        return (str_hasta != "" and str_desde.startswith(str_hasta))
+    def only_letters(s: str) -> str:
+        return Helper2._RE_ONLY_LETTERS.sub('', s or '')
 
     @staticmethod
-    def empty_comodin(value, comodin):
-        str_value = str(value) if value is not None else ""
-
-        # En PHP: ($value !== "" && strpos($value, $comodin) === false)
-        return (str_value != "" and comodin not in str_value)
-
+    def EmptyComodin(value, comodin) -> bool:
+        value = Helper2._to_php_str(value)
+        comodin = Helper2._to_php_str(comodin)
+        return (value != "") and (comodin not in value)
 
     @staticmethod
-    def bol_campo_find_object_authorization(
-        bol_campo, desde, desde_perfil, hasta, hasta_perfil, comodin,
-        a_result_perfiles, id_actividad, transaccion, id_perfil,
-        id_sap_autorizacion, id_sap_rol, id_sap_objeto_proceso,
-        objeto, id_sap_campo_proceso, campo
+    def BeginStart(desde, hasta, comodin) -> bool:
+        desde = Helper2._to_php_str(desde).replace(Helper2._to_php_str(comodin), "")
+        hasta = Helper2._to_php_str(hasta)
+        return (hasta != "") and desde.startswith(hasta)
+
+    @staticmethod
+    def BeginAllStart(desde, hasta, comodin) -> bool:
+        desde = Helper2._to_php_str(desde).replace(Helper2._to_php_str(comodin), "")
+        hasta = Helper2._to_php_str(hasta).replace(Helper2._to_php_str(comodin), "")
+        return ((hasta != "" and desde.startswith(hasta)) or
+                (desde != "" and hasta.startswith(desde)))
+
+    @staticmethod
+    def BolCampoFind(desde, hasta, desde_perfil, hasta_perfil, comodin) -> bool:
+        """
+        Traducción literal de la lógica condicional.
+        Devuelve True/False EXACTAMENTE con las mismas condiciones que tu versión actual.
+        """
+        # --- Normalización única (idéntica a tu versión actual) ---
+        s_desde = Helper2._to_php_str(desde)
+        s_dp = Helper2._to_php_str(desde_perfil)
+        s_hasta = Helper2._to_php_str(hasta)
+        s_hp = Helper2._to_php_str(hasta_perfil)
+        s_como = Helper2._to_php_str(comodin)
+
+        # Helpers locales equivalentes (evitamos llamadas repetidas y _to_php_str internos)
+        def empty_como(val: str) -> bool:
+            return (val != "") and (s_como not in val)
+
+        # Pre-remplazos para begins
+        rep_desde = s_desde.replace(s_como, "") if s_como else s_desde
+        rep_hasta = s_hasta.replace(s_como, "") if s_como else s_hasta
+        rep_dp = s_dp.replace(s_como, "") if s_como else s_dp
+        rep_hp = s_hp.replace(s_como, "") if s_como else s_hp
+
+        def begin_start(d: str, h: str) -> bool:
+            # Igual que BeginStart tras normalización previa
+            return (h != "") and d.startswith(h)
+
+        def begin_all_start(d: str, h: str) -> bool:
+            # Igual que BeginAllStart tras normalización previa
+            return ((h != "" and d.startswith(h)) or (d != "" and h.startswith(d)))
+
+        # --- Condiciones (mismo orden y comparaciones) ---
+
+        # 1)
+        if (s_desde == s_como) or (s_dp == s_como) or (s_desde == s_dp):
+            return True
+
+        # 2)
+        if (Helper2.is_numeric_php(s_desde)
+                and s_dp == "0*"
+                and s_hp == "9*"
+                and int(s_desde) >= 0):
+            return True
+
+        # 3) redundante con 1, se mantiene
+        if (s_desde == s_dp):
+            return True
+
+        # 4) rama numérica cuando s_desde es numérico
+        if Helper2.is_numeric_php(s_desde):
+            d = Helper2.php_int(s_desde)
+            dp = Helper2.php_int(s_dp)  # siempre int
+            h = Helper2.php_int(s_hasta) if Helper2.is_numeric_php(s_hasta) else s_hasta
+            hp = Helper2.php_int(s_hp) if Helper2.is_numeric_php(s_hp) else s_hp
+
+            # 4.1)
+            if (isinstance(dp, int) and d == dp) and (s_hasta == "") and (s_dp != "") and (s_hp == ""):
+                return True
+
+            # 4.2)
+            if (isinstance(dp, int) and isinstance(hp, int)
+                    and (d >= dp and d <= hp)
+                    and (s_hasta == "") and (s_dp != "") and (s_hp != "")):
+                return True
+
+            # 4.3)
+            if (isinstance(dp, int) and isinstance(h, int)
+                    and (dp >= d and dp <= h)
+                    and (s_hasta != "") and (s_dp != "") and (s_hp == "")):
+                return True
+
+            # 4.4)
+            if (isinstance(h, int) and isinstance(hp, int)
+                    and (h >= hp and d <= hp)
+                    and (s_hasta != "") and (s_dp != "") and (s_hp != "")):
+                return True
+
+        # 5)
+        if ((s_desde == s_dp)
+                and empty_como(s_desde)
+                and s_hasta == ""
+                and empty_como(s_dp)
+                and s_hp == ""):
+            return True
+
+        # 6)
+        if ((s_desde >= s_dp and s_desde <= s_hp)
+                and empty_como(s_desde)
+                and s_hasta == ""
+                and empty_como(s_dp)
+                and empty_como(s_hp)):
+            return True
+
+        # 7)
+        if ((s_dp >= s_desde and s_dp <= s_hasta)
+                and empty_como(s_desde)
+                and empty_como(s_hasta)
+                and empty_como(s_dp)
+                and s_hp == ""):
+            return True
+
+        # 8)
+        if ((s_hasta >= s_hp and s_desde <= s_hp)
+                and empty_como(s_desde)
+                and empty_como(s_hasta)
+                and empty_como(s_dp)
+                and empty_como(s_hp)):
+            return True
+
+        # 9)
+        if (begin_start(rep_desde, s_dp)
+                and not empty_como(s_desde)
+                and s_hasta == ""
+                and empty_como(s_dp)
+                and s_hp == ""):
+            return True
+
+        # 10)
+        if ((begin_start(rep_desde, s_dp) or begin_start(rep_desde, s_hp))
+                and not empty_como(s_desde)
+                and s_hasta == ""
+                and empty_como(s_dp)
+                and empty_como(s_hp)):
+            return True
+
+        # 11)
+        if ((begin_start(rep_desde, s_dp) or begin_start(rep_hasta, s_dp))
+                and not empty_como(s_desde)
+                and not empty_como(s_hasta)
+                and empty_como(s_dp)
+                and s_hp == ""):
+            return True
+
+        # 12)
+        if ((begin_start(rep_desde, s_dp)
+             or begin_start(rep_hasta, s_dp)
+             or begin_start(rep_desde, s_hp)
+             or begin_start(rep_hasta, s_hp))
+                and not empty_como(s_desde)
+                and not empty_como(s_hasta)
+                and empty_como(s_dp)
+                and empty_como(s_hp)):
+            return True
+
+        # 13)
+        if (begin_start(rep_dp, s_desde)
+                and empty_como(s_desde)
+                and s_hasta == ""
+                and not empty_como(s_dp)
+                and s_hp == ""):
+            return True
+
+        # 14)
+        if ((begin_start(rep_dp, s_desde) or begin_start(rep_hp, s_desde))
+                and empty_como(s_desde)
+                and s_hasta == ""
+                and not empty_como(s_dp)
+                and s_hp == ""):
+            return True
+
+        # 15)
+        if ((begin_start(rep_dp, s_desde) or begin_start(rep_dp, s_hasta))
+                and empty_como(s_desde)
+                and empty_como(s_hasta)
+                and not empty_como(s_dp)
+                and s_hp == ""):
+            return True
+
+        # 16)
+        if ((begin_start(rep_dp, s_desde)
+             or begin_start(rep_dp, s_hasta)
+             or begin_start(rep_hp, s_desde)
+             or begin_start(rep_hp, s_hasta))
+                and empty_como(s_desde)
+                and empty_como(s_hasta)
+                and not empty_como(s_dp)
+                and not empty_como(s_hp)):
+            return True
+
+        # 17) (tres variantes)
+        if (begin_all_start(rep_desde, rep_dp)
+                and not empty_como(s_desde)
+                and s_hasta == ""
+                and not empty_como(s_dp)
+                and s_hp == ""):
+            return True
+
+        if (begin_all_start(rep_desde, rep_dp)
+                and not empty_como(s_desde)
+                and s_hasta == ""
+                and empty_como(s_dp)
+                and s_hp == ""):
+            return True
+
+        if (begin_all_start(rep_desde, rep_dp)
+                and empty_como(s_desde)
+                and s_hasta == ""
+                and not empty_como(s_dp)
+                and s_hp == ""):
+            return True
+
+        # 18)
+        if ((begin_all_start(rep_desde, rep_dp) or begin_all_start(rep_desde, rep_hp))
+                and not empty_como(s_desde)
+                and s_hasta == ""
+                and not empty_como(s_dp)
+                and not empty_como(s_hp)):
+            return True
+
+        # 19)
+        if ((begin_all_start(rep_desde, rep_dp) or begin_all_start(rep_hasta, rep_dp))
+                and not empty_como(s_desde)
+                and not empty_como(s_hasta)
+                and not empty_como(s_dp)
+                and s_hp == ""):
+            return True
+
+        # 20)
+        if ((begin_all_start(rep_desde, rep_dp)
+             or begin_all_start(rep_desde, rep_hp)
+             or begin_all_start(rep_hasta, rep_dp)
+             or begin_all_start(rep_hasta, rep_hp))
+                and not empty_como(s_desde)
+                and not empty_como(s_hasta)
+                and not empty_como(s_dp)
+                and not empty_como(s_hp)):
+            return True
+
+        return False
+
+    @staticmethod
+    def BolCampoFindObjectAuthorization(
+        BolCampo,
+        desde, desde_perfil, hasta, hasta_perfil, comodin,
+        aResultPerfiles,
+        IdActividad, Transaccion, IdPerfil, IdSapAutorizacion, IdSapRol,
+        IdSapObjetoProceso, Objeto, IdSapCampoProceso, Campo
     ):
-        bol_campo = Helper.bol_campo_find(desde, hasta, desde_perfil, hasta_perfil, comodin)
-
-        if bol_campo:
-            # PHP hace: $aResultPerfiles["Actividad"][$IdActividad]["TransaccionPerfiles"][$Transaccion][] = array(...)
-            if "ACTIVITY" not in a_result_perfiles:
-                a_result_perfiles["ACTIVITY"] = {}
-            if id_actividad not in a_result_perfiles["ACTIVITY"]:
-                a_result_perfiles["ACTIVITY"][id_actividad] = {"TRANSACTIONPROFILES": {}}
-            if transaccion not in a_result_perfiles["ACTIVITY"][id_actividad]["TRANSACTIONPROFILES"]:
-                a_result_perfiles["ACTIVITY"][id_actividad]["TRANSACTIONPROFILES"][transaccion] = []
-
-            a_result_perfiles["ACTIVITY"][id_actividad]["TRANSACTIONPROFILES"][transaccion].append({
-                "IdTransaccion": transaccion,
-                "IdSapPerfil": id_perfil,
-                "IdSapAutorizacion": id_sap_autorizacion,
-                "IdSapRol": id_sap_rol,
-                "IdObjeto": id_sap_objeto_proceso,
-                "Objeto": objeto,
-                "IdCampo": id_sap_campo_proceso,
-                "Campo": campo,
-                "Desde": desde_perfil,
-                "Hasta": hasta_perfil
+        """
+        Replica exacta:
+        - Evalúa BolCampoFind(...)
+        - Si True, inserta en aResultPerfiles["Actividad"][IdActividad]["TransaccionPerfiles"][Transaccion][]
+        - Devuelve {'BolCampo': bool, 'aResultPerfiles': dict}
+        """
+        BolCampo = Helper2.BolCampoFind(desde, hasta, desde_perfil, hasta_perfil, comodin)
+        if BolCampo:
+            actividad = aResultPerfiles.setdefault("Actividad", {})
+            act = actividad.setdefault(IdActividad, {})
+            trans = act.setdefault("TransaccionPerfiles", {})
+            bucket = trans.setdefault(Transaccion, [])
+            bucket.append({
+                "IdTransaccion": Transaccion,
+                "IdSapPerfil": IdPerfil,
+                "IdSapAutorizacion": IdSapAutorizacion,
+                "IdSapRol": IdSapRol,
+                "IdObjeto": IdSapObjetoProceso,
+                "Objeto": Objeto,
+                "IdCampo": IdSapCampoProceso,
+                "Campo": Campo,
+                "Desde": Helper2._to_php_str(desde_perfil),
+                "Hasta": Helper2._to_php_str(hasta_perfil),
             })
 
-        return {"BolCampo": bol_campo, "aResultPerfiles": a_result_perfiles}
-    
-
-    @staticmethod
-    def add_actividad_rol_campo(result_profiles, sap_org_levels, campo, campo_key):
-        """
-        Agrega información de niveles organizacionales a los resultados de perfiles
-        
-        Args:
-            result_profiles (dict): Diccionario con los resultados de perfiles
-            sap_org_levels (list): Lista de niveles organizacionales SAP
-            campo (str): Nombre del campo a evaluar
-            campo_key (str): Clave para almacenar en el diccionario de resultados
-        
-        Returns:
-            dict: result_profiles actualizado
-        """
-        for actividad_id, item in result_profiles["Activity"].items():
-            roles = item["Roles"]
-            for role_id in roles:
-                # Filtrar niveles organizacionales por rol y campo
-                filtered_levels = [
-                    level for level in sap_org_levels 
-                    if level["role_id"] == role_id and level["organizational_level"] == campo
-                ]
-                
-                if filtered_levels:
-                    if role_id not in result_profiles["Activity"][actividad_id][campo_key]:
-                        data = {
-                            'from': filtered_levels[0]['from'],
-                            'to': filtered_levels[0]['to']
-                        }
-                        result_profiles["Activity"][actividad_id][campo_key][role_id] = data
-                        
-        return result_profiles
-
-    @staticmethod
-    def bol_actividad_rol_campo(result_profiles, campo, wildcard):
-        """
-        Verifica condiciones booleanas sobre los campos de actividad y roles
-        
-        Args:
-            result_profiles (dict): Diccionario con los resultados de perfiles
-            campo (str): Nombre del campo a evaluar
-            wildcard (str): Comodín para comparaciones
-        
-        Returns:
-            bool: Resultado de la evaluación condicional
-        """
-        actividades = {}
-        all_true = False
-        
-        for actividad_id, item in result_profiles["Activity"].items():
-            campos = item[campo]
-            
-            # Filtrar roles que cumplan condiciones especiales
-            filtered_roles = [
-                role for role in campos.values() 
-                if (role['from'] == wildcard or 
-                    (role['from'] == '0*' and role['to'] == '9*') or
-                    (role['from'] == '0' and role['to'] == 'ZZZZ'))
-            ]
-            
-            if filtered_roles:
-                all_true = True
-                break
-                
-            if not all_true:
-                # Crear copia sin la actividad actual
-                copy_results = result_profiles["Activity"].copy()
-                del copy_results[actividad_id]
-                
-                for campo_val, values in campos.items():
-                    for actividad_copy_id, item_copy in copy_results.items():
-                        roles_copy = item_copy[campo]
-                        
-                        # Filtrar roles que cumplan la condición de coincidencia
-                        filtered_copy_roles = [
-                            role for role in roles_copy.values()
-                            if Helper.bol_campo_find(
-                                role['from'], role['to'], 
-                                values['from'], values['to'], 
-                                wildcard
-                            )
-                        ]
-                        
-                        if filtered_copy_roles:
-                            if actividad_id not in actividades:
-                                actividades[actividad_id] = 0
-                            actividades[actividad_id] += 1
-                                
-        # Evaluación final
-        bol_actividad = all_true
-        
-        if actividades:
-            total_actividades = len(result_profiles["Activity"])
-            filtered_actividades = [
-                count for count in actividades.values() 
-                if count >= (total_actividades - 1)
-            ]
-            
-            if filtered_actividades:
-                bol_actividad = True
-                
-        return bol_actividad
+        return {"BolCampo": BolCampo, "aResultPerfiles": aResultPerfiles}
 
     @staticmethod
     def prepare_errors(error_list):
@@ -415,66 +337,3 @@ class Helper:
             "total_errors": len(error_list),
             "details": error_list
         }
-
-    @staticmethod
-    def php_int_cast(value):
-        # Caso 1: Valor es None o falso en PHP (null, false)
-        if value is None:
-            return 0
-        if isinstance(value, bool):
-            return 1 if value else 0
-        
-        # Caso 2: Ya es un número entero
-        if isinstance(value, int):
-            return value
-        
-        # Caso 3: Es un float (truncar como PHP)
-        if isinstance(value, float):
-            return int(value)
-        
-        # Caso 4: Es un string
-        if isinstance(value, str):
-            value = value.strip()
-            if not value:  # String vacío
-                return 0
-            
-            # Manejar notación científica que PHP interpreta
-            if 'e' in value.lower():
-                parts = value.lower().split('e')
-                try:
-                    base = float(parts[0])
-                    exp = int(parts[1])
-                    return int(base * (10 ** exp))
-                except:
-                    return 0
-            
-            # Extraer parte numérica inicial (como PHP)
-            match = re.match(r'^([+-]?\d+)', value)
-            if match:
-                try:
-                    return int(match.group(1))
-                except:
-                    return 0
-            return 0
-        
-        # Caso 5: Otros tipos (array, objeto, etc.)
-        try:
-            return int(value)
-        except:
-            return 0
-
-
-    def php_empty(value):
-        return value is None or value == '' or value == 0 or value == '0' or value is False
-
-    @staticmethod
-    def is_numeric(value):
-        if isinstance(value, (int, float)):
-            return True
-        if isinstance(value, str) and value.strip() != "":
-            try:
-                float(value)  # acepta "10", "10.5", "1e3"
-                return True
-            except ValueError:
-                return False
-        return False

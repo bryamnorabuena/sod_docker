@@ -9,7 +9,7 @@ class SapUsuario(Base):
     Id = Column(Integer, primary_key=True, nullable=False)
     IdMatrizSap = Column(Integer, nullable=False)
     IdUsuario = Column(Integer, nullable=False)
-    FechaInicio = Column(DateTime, nullable=False)
+    FechaInicio = Column(DateTime, nullable=True)
     FechaFin = Column(DateTime, nullable=False)
     Uflag = Column(Integer, nullable=False)
     IdAppUserCreacion = Column(Integer, nullable=False)
